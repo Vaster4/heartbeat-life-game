@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ScoreCalculator } from '../../src/core/score';
-import type { EliminationEvent, GameConfig } from '../../src/types';
+import type { EliminationEvent } from '../../src/types';
 import { createConfig } from '../../src/core/config';
 
 function makeElimination(
