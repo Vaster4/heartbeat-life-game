@@ -6,7 +6,7 @@ export const DEFAULT_CONFIG: Readonly<GameConfig> = {
   boardCols: 4,
   glassTypeCount: 8,
   minGlassesPerPlate: 1,
-  maxGlassesPerPlate: 4,
+  maxGlassesPerPlate: 3,
   slotsPerPlate: 6,
   platesPerRound: 3,
   targetGlassCount: 2,
