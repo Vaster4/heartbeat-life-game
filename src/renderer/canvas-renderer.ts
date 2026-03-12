@@ -76,6 +76,9 @@ export class CanvasRenderer implements IRenderer {
   /** 是否显示 dump 模式指示器 */
   dumpEnabled = false;
 
+  /** 是否显示导出日志按钮（内测模式） */
+  showExportButton = false;
+
   init(container: HTMLElement): void {
     this.container = container;
     this.canvas = document.createElement('canvas');
@@ -168,6 +171,11 @@ export class CanvasRenderer implements IRenderer {
     if (state.gameOver) {
       this.drawGameOver(ctx, L, state);
     }
+
+    // Export log button (alpha test mode)
+    if (this.showExportButton) {
+      this.drawExportButton(ctx);
+    }
   }
 
   /** Expose the current layout for input hit-testing. */
@@ -183,6 +191,17 @@ export class CanvasRenderer implements IRenderer {
     const btnH = Math.max(40, L.height * 0.06);
     const btnX = (L.width - btnW) / 2;
     const btnY = L.height / 2 + L.height * 0.06;
+    return { x: btnX, y: btnY, width: btnW, height: btnH };
+  }
+
+  /** Returns the export log button bounds (in CSS pixels) for hit-testing. */
+  getExportButtonBounds(): { x: number; y: number; width: number; height: number } | null {
+    if (!this.layout || !this.showExportButton) return null;
+    const L = this.layout;
+    const btnW = Math.min(100, L.width * 0.25);
+    const btnH = Math.max(28, L.height * 0.035);
+    const btnX = L.width - L.padding - btnW;
+    const btnY = L.height - btnH - L.padding * 0.5;
     return { x: btnX, y: btnY, width: btnW, height: btnH };
   }
 
@@ -658,6 +677,26 @@ export class CanvasRenderer implements IRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('重新开始', btn.x + btn.width / 2, btn.y + btn.height / 2);
+  }
+
+  private drawExportButton(ctx: CanvasRenderingContext2D): void {
+    const btn = this.getExportButtonBounds();
+    if (!btn) return;
+
+    const r = btn.height * 0.25;
+    this.roundRect(ctx, btn.x, btn.y, btn.width, btn.height, r);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const fontSize = Math.max(11, btn.height * 0.45);
+    ctx.fillStyle = '#eee';
+    ctx.font = `${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('导出日志', btn.x + btn.width / 2, btn.y + btn.height / 2);
   }
 
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

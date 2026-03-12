@@ -15,6 +15,7 @@ export class InputHandler implements IInputHandler {
   private cellClickCallback: ((row: number, col: number) => void) | null = null;
   private stagingClickCallback: ((index: number) => void) | null = null;
   private restartClickCallback: (() => void) | null = null;
+  private exportLogClickCallback: (() => void) | null = null;
 
   // Bound handlers for cleanup
   private handleClick: ((e: MouseEvent) => void) | null = null;
@@ -60,6 +61,7 @@ export class InputHandler implements IInputHandler {
     this.cellClickCallback = null;
     this.stagingClickCallback = null;
     this.restartClickCallback = null;
+    this.exportLogClickCallback = null;
   }
 
   onCellClick(callback: (row: number, col: number) => void): void {
@@ -72,6 +74,10 @@ export class InputHandler implements IInputHandler {
 
   onRestartClick(callback: () => void): void {
     this.restartClickCallback = callback;
+  }
+
+  onExportLogClick(callback: () => void): void {
+    this.exportLogClickCallback = callback;
   }
 
   // --- Private helpers ---
@@ -96,6 +102,7 @@ export class InputHandler implements IInputHandler {
   private dispatchHit(x: number, y: number): void {
     // Check restart button first (it overlays everything during game over)
     if (this.tryRestartHit(x, y)) return;
+    if (this.tryExportLogHit(x, y)) return;
     if (this.tryCellHit(x, y)) return;
     this.tryStagingHit(x, y);
   }
@@ -112,6 +119,23 @@ export class InputHandler implements IInputHandler {
       y <= bounds.y + bounds.height
     ) {
       this.restartClickCallback();
+      return true;
+    }
+    return false;
+  }
+
+  private tryExportLogHit(x: number, y: number): boolean {
+    if (!this.exportLogClickCallback) return false;
+    const bounds = this.renderer.getExportButtonBounds();
+    if (!bounds) return false;
+
+    if (
+      x >= bounds.x &&
+      x <= bounds.x + bounds.width &&
+      y >= bounds.y &&
+      y <= bounds.y + bounds.height
+    ) {
+      this.exportLogClickCallback();
       return true;
     }
     return false;

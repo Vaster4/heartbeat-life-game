@@ -3,6 +3,9 @@ import { GameEngine } from './core/game-engine';
 import { CanvasRenderer } from './renderer/canvas-renderer';
 import { InputHandler } from './renderer/input-handler';
 
+/** 内测模式：dump 常开 + 显示导出日志按钮 */
+const ALPHA_TEST = true;
+
 function main(): void {
   const container = document.getElementById('app');
   if (!container) {
@@ -22,6 +25,14 @@ function main(): void {
 
   // 4. Start game and render initial state
   engine.start();
+
+  // Alpha test mode: dump always on + show export button
+  if (ALPHA_TEST) {
+    engine.logger.dumpEnabled = true;
+    renderer.dumpEnabled = true;
+    renderer.showExportButton = true;
+  }
+
   renderer.renderState(engine.getState());
 
   // 5. Wire up input callbacks
@@ -56,6 +67,10 @@ function main(): void {
   inputHandler.onRestartClick(() => {
     engine.reset();
     renderer.renderState(engine.getState());
+  });
+
+  inputHandler.onExportLogClick(() => {
+    engine.logger.download(`game-log-${Date.now()}.txt`);
   });
 
   // Expose logger download for debugging (press L key or call from console)
