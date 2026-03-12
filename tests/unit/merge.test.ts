@@ -15,11 +15,13 @@ describe('MergeAlgorithm', () => {
   const algo = new MergeAlgorithm();
 
   describe('basic merge', () => {
-    it('merges shared glass type to the earlier-timestamp plate', () => {
+    it('redistributes glasses by type when adjacent plates share a type', () => {
       const board = new BoardState(1, 2);
-      // Plate A (timestamp 1): glasses [0, 1]
-      // Plate B (timestamp 2): glasses [1, 2]
-      // Shared type 1 → should transfer from B to A
+      // A (ts=1): glasses [0, 1]
+      // B (ts=2): glasses [1, 2]
+      // Shared type 1 → triggers merge group {A, B}
+      // Total: type1×2, type0×1, type2×1
+      // A (earliest) gets type1(most), B gets type0 + type2
       board.setCell(0, 0, makePlate('a', [0, 1], 1));
       board.setCell(0, 1, makePlate('b', [1, 2], 2));
 
@@ -27,22 +29,23 @@ describe('MergeAlgorithm', () => {
 
       const plateA = board.getCell(0, 0)!;
       const plateB = board.getCell(0, 1)!;
-      expect(plateA.glasses).toContain(1);
-      // Type 1 transferred from B to A
-      expect(plateA.glasses.filter((g) => g === 1).length).toBe(2);
-      expect(plateB.glasses).not.toContain(1);
-      expect(plateB.glasses).toEqual([2]);
+      // A gets the most common type (type 1, 2 glasses)
+      expect(plateA.glasses.sort()).toEqual([1, 1]);
+      // B gets the remaining types
+      expect(plateB.glasses.sort()).toEqual([0, 2]);
       expect(result.mergeSteps.length).toBeGreaterThan(0);
       expect(result.isStable).toBe(true);
     });
   });
 
   describe('overflow handling', () => {
-    it('only transfers enough glasses to fill target to 6', () => {
+    it('only transfers enough glasses to fill target to 6, then displacement separates types', () => {
       const board = new BoardState(1, 2);
       // Target (ts=1): 5 glasses [0,0,0,1,1], Source (ts=2): 2 of type 0
-      // Can only transfer 1 of type 0 (5+1=6), leaving 1 in source
-      // Target ends up with [0,0,0,1,1,0] — mixed types, no full_same_type elimination
+      // Step 1 - Group merge: transfer 1 of type 0 from B→A (5+1=6 cap), A=[0×4,1×2], B=[0×1]
+      // Step 2 - Displacement: A is full & mixed, push type 1 to B → A=[0×4], B=[0,1,1]
+      // Step 3 - Group merge: type 0 from B→A → A=[0×5], B=[1,1]
+      // Stable: each plate is single-type
       board.setCell(0, 0, makePlate('a', [0, 0, 0, 1, 1], 1));
       board.setCell(0, 1, makePlate('b', [0, 0], 2));
 
@@ -50,10 +53,12 @@ describe('MergeAlgorithm', () => {
 
       const plateA = board.getCell(0, 0)!;
       const plateB = board.getCell(0, 1)!;
-      expect(plateA.glasses.length).toBe(6);
-      expect(plateA.glasses.filter((g) => g === 0).length).toBe(4);
-      expect(plateB.glasses.length).toBe(1);
-      expect(plateB.glasses[0]).toBe(0);
+      // A ends up with all type 0 (5 glasses)
+      expect(plateA.glasses.every((g) => g === 0)).toBe(true);
+      expect(plateA.glasses.length).toBe(5);
+      // B ends up with all type 1 (2 glasses)
+      expect(plateB.glasses.every((g) => g === 1)).toBe(true);
+      expect(plateB.glasses.length).toBe(2);
     });
   });
 
