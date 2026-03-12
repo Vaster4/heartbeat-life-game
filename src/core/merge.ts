@@ -68,31 +68,11 @@ export class MergeAlgorithm implements IMergeAlgorithm {
         const plate = board.getCell(r, c);
         if (!plate || plate.glasses.length === 0) continue;
 
-        // 收集相邻非空盘子
-        const neighbors = board.getNeighbors(r, c);
-        const adjacentPlates: { pos: CellPosition; plate: Plate }[] = [];
-        for (const nPos of neighbors) {
-          const np = board.getCell(nPos.row, nPos.col);
-          if (np && np.glasses.length > 0) {
-            adjacentPlates.push({ pos: nPos, plate: np });
-          }
-        }
-        if (adjacentPlates.length === 0) continue;
-
-        // 检查是否有共同类型
-        const myTypes = new Set(plate.glasses);
-        let hasShared = false;
-        for (const adj of adjacentPlates) {
-          for (const g of adj.plate.glasses) {
-            if (myTypes.has(g)) { hasShared = true; break; }
-          }
-          if (hasShared) break;
-        }
-        if (!hasShared) continue;
-
-        // 用 BFS 扩展参与组：从当前盘子出发，
-        // 把所有通过"共同酒杯类型"连通的相邻盘子都纳入
+        // 用迭代式 BFS 构建参与组
         const group = this.buildMergeGroup(board, { row: r, col: c });
+
+        // 至少需要 2 个盘子才能合并
+        if (group.length < 2) continue;
 
         // 标记已处理
         for (const member of group) {
@@ -110,42 +90,55 @@ export class MergeAlgorithm implements IMergeAlgorithm {
   }
 
   /**
-   * BFS 构建参与组：从起始盘子出发，将所有通过共同酒杯类型
-   * 相邻连通的盘子纳入同一组。
+   * 迭代式 BFS 构建参与组：
+   * 1. 从起始盘子出发，检查相邻盘子是否与组内任何成员有共同类型
+   * 2. 如果有，纳入组，并重新检查新成员的邻居
+   * 3. 重复直到没有新成员加入
    *
-   * 规则：如果盘子 X 和相邻盘子 Y 有共同酒杯类型，
-   * 则 Y 加入组，然后继续检查 Y 的相邻盘子。
+   * 这样可以处理"A-B-C"场景：A 和 C 有共同类型但 B 没有，
+   * 只要 A 和 B 相邻且有共同类型，B 加入后 C 作为 B 的邻居
+   * 会被检查是否与组内（A 或 B）有共同类型。
    */
   private buildMergeGroup(
     board: IBoardState,
     start: CellPosition,
   ): { pos: CellPosition; plate: Plate }[] {
-    const group: { pos: CellPosition; plate: Plate }[] = [];
-    const visited = new Set<string>();
-    const queue: CellPosition[] = [start];
-    visited.add(`${start.row},${start.col}`);
+    const startPlate = board.getCell(start.row, start.col);
+    if (!startPlate) return [];
 
-    while (queue.length > 0) {
-      const pos = queue.shift()!;
-      const plate = board.getCell(pos.row, pos.col);
-      if (!plate) continue;
-      group.push({ pos, plate });
+    const group: { pos: CellPosition; plate: Plate }[] = [
+      { pos: start, plate: startPlate },
+    ];
+    const inGroup = new Set<string>([`${start.row},${start.col}`]);
 
-      const myTypes = new Set(plate.glasses);
-      for (const nPos of board.getNeighbors(pos.row, pos.col)) {
-        const nKey = `${nPos.row},${nPos.col}`;
-        if (visited.has(nKey)) continue;
-        const neighbor = board.getCell(nPos.row, nPos.col);
-        if (!neighbor || neighbor.glasses.length === 0) continue;
+    // 收集组内所有酒杯类型（用于快速判断共同类型）
+    const groupTypes = new Set<GlassType>(startPlate.glasses);
 
-        // 检查是否有共同类型
-        let shared = false;
-        for (const g of neighbor.glasses) {
-          if (myTypes.has(g)) { shared = true; break; }
-        }
-        if (shared) {
-          visited.add(nKey);
-          queue.push(nPos);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      // 遍历当前组内所有成员的邻居
+      for (let gi = 0; gi < group.length; gi++) {
+        const member = group[gi]!;
+        for (const nPos of board.getNeighbors(member.pos.row, member.pos.col)) {
+          const nKey = `${nPos.row},${nPos.col}`;
+          if (inGroup.has(nKey)) continue;
+          const neighbor = board.getCell(nPos.row, nPos.col);
+          if (!neighbor || neighbor.glasses.length === 0) continue;
+
+          // 检查邻居是否与组内有共同类型
+          let shared = false;
+          for (const g of neighbor.glasses) {
+            if (groupTypes.has(g)) { shared = true; break; }
+          }
+          if (shared) {
+            inGroup.add(nKey);
+            group.push({ pos: nPos, plate: neighbor });
+            for (const g of neighbor.glasses) {
+              groupTypes.add(g);
+            }
+            changed = true;
+          }
         }
       }
     }
