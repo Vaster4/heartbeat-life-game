@@ -12,132 +12,149 @@ import type {
 const MAX_ITERATIONS = 1000;
 
 /**
- * 合并算法：扫描棋盘上所有相邻盘子对，将同类型酒杯转移到时间戳更早的盘子，
+ * 合并算法：
+ * 对于每种酒杯类型，找到所有通过相邻关系连通的、包含该类型酒杯的盘子群组，
+ * 将该类型的所有酒杯集中到群组中时间戳最早的盘子（不超过6个上限）。
  * 然后检查消除条件，循环直到棋盘达到稳定态。
  */
 export class MergeAlgorithm implements IMergeAlgorithm {
   resolveUntilStable(board: IBoardState): ResolutionResult {
     const allMergeSteps: MergeStep[] = [];
     const allEliminations: EliminationEvent[] = [];
-    let isStable = true;
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const mergeSteps = this.performMerges(board);
+      // 1. Perform group-based merges for all glass types
+      const mergeSteps = this.performGroupMerges(board);
+      if (mergeSteps.length > 0) {
+        allMergeSteps.push(...mergeSteps);
+      }
+
+      // 2. Check for eliminations
       const eliminations = this.performEliminations(board);
+      if (eliminations.length > 0) {
+        allEliminations.push(...eliminations);
+      }
 
-      allMergeSteps.push(...mergeSteps);
-      allEliminations.push(...eliminations);
-
+      // 3. If nothing changed, we're stable
       if (mergeSteps.length === 0 && eliminations.length === 0) {
-        // No changes — board is stable
         return { mergeSteps: allMergeSteps, eliminations: allEliminations, isStable: true };
       }
     }
 
-    // Hit max iterations — not truly stable
-    isStable = false;
-    return { mergeSteps: allMergeSteps, eliminations: allEliminations, isStable };
+    return { mergeSteps: allMergeSteps, eliminations: allEliminations, isStable: false };
   }
 
   /**
-   * Scan all adjacent plate pairs and transfer shared glass types
-   * to the plate with the earlier placedTimestamp.
+   * For each glass type, find connected groups of plates that contain that type,
+   * then transfer all glasses of that type to the earliest plate in the group.
    */
-  private performMerges(board: IBoardState): MergeStep[] {
+  private performGroupMerges(board: IBoardState): MergeStep[] {
+    const allSteps: MergeStep[] = [];
+
+    // Collect all glass types present on the board
+    const glassTypesOnBoard = new Set<GlassType>();
+    for (let r = 0; r < board.rows; r++) {
+      for (let c = 0; c < board.cols; c++) {
+        const plate = board.getCell(r, c);
+        if (!plate) continue;
+        for (const g of plate.glasses) {
+          glassTypesOnBoard.add(g);
+        }
+      }
+    }
+
+    // For each glass type, find connected groups and merge
+    for (const glassType of glassTypesOnBoard) {
+      const steps = this.mergeByType(board, glassType);
+      allSteps.push(...steps);
+    }
+
+    return allSteps;
+  }
+
+  /**
+   * For a specific glass type, find all connected groups of adjacent plates
+   * that contain this type, then transfer to the earliest plate in each group.
+   */
+  private mergeByType(board: IBoardState, glassType: GlassType): MergeStep[] {
     const steps: MergeStep[] = [];
     const visited = new Set<string>();
 
     for (let r = 0; r < board.rows; r++) {
       for (let c = 0; c < board.cols; c++) {
+        const key = `${r},${c}`;
+        if (visited.has(key)) continue;
+
         const plate = board.getCell(r, c);
-        if (!plate) continue;
+        if (!plate || !plate.glasses.includes(glassType)) continue;
 
-        const neighbors = board.getNeighbors(r, c);
-        for (const nPos of neighbors) {
-          // Avoid processing the same pair twice
-          const pairKey = this.pairKey(r, c, nPos.row, nPos.col);
-          if (visited.has(pairKey)) continue;
-          visited.add(pairKey);
+        // BFS to find all connected plates with this glass type
+        const group: { pos: CellPosition; plate: Plate }[] = [];
+        const queue: CellPosition[] = [{ row: r, col: c }];
+        visited.add(key);
 
-          const neighbor = board.getCell(nPos.row, nPos.col);
-          if (!neighbor) continue;
+        while (queue.length > 0) {
+          const pos = queue.shift()!;
+          const p = board.getCell(pos.row, pos.col);
+          if (!p) continue;
 
-          const pairSteps = this.mergePair(
-            board,
-            { row: r, col: c },
-            plate,
-            nPos,
-            neighbor,
-          );
-          steps.push(...pairSteps);
+          group.push({ pos, plate: p });
+
+          for (const nPos of board.getNeighbors(pos.row, pos.col)) {
+            const nKey = `${nPos.row},${nPos.col}`;
+            if (visited.has(nKey)) continue;
+            const neighbor = board.getCell(nPos.row, nPos.col);
+            if (!neighbor || !neighbor.glasses.includes(glassType)) continue;
+            visited.add(nKey);
+            queue.push(nPos);
+          }
+        }
+
+        // Only merge if group has 2+ plates
+        if (group.length < 2) continue;
+
+        // Find the earliest plate in the group
+        let earliest = group[0]!;
+        for (let i = 1; i < group.length; i++) {
+          const g = group[i]!;
+          if ((g.plate.placedTimestamp ?? 0) < (earliest.plate.placedTimestamp ?? 0)) {
+            earliest = g;
+          }
+        }
+
+        // Transfer this glass type from all other plates to earliest
+        for (const member of group) {
+          if (member === earliest) continue;
+
+          const sourceCount = member.plate.glasses.filter((g) => g === glassType).length;
+          const currentTotal = earliest.plate.glasses.length;
+          const transferCount = Math.min(sourceCount, 6 - currentTotal);
+
+          if (transferCount <= 0) continue;
+
+          // Remove from source
+          let removed = 0;
+          member.plate.glasses = member.plate.glasses.filter((g) => {
+            if (g === glassType && removed < transferCount) {
+              removed++;
+              return false;
+            }
+            return true;
+          });
+
+          // Add to target
+          for (let i = 0; i < transferCount; i++) {
+            earliest.plate.glasses.push(glassType);
+          }
+
+          steps.push({
+            sourcePos: member.pos,
+            targetPos: earliest.pos,
+            glassType,
+            count: transferCount,
+          });
         }
       }
-    }
-
-    return steps;
-  }
-
-  /**
-   * For a pair of adjacent plates, find shared glass types and transfer
-   * them to the plate with the earlier timestamp.
-   */
-  private mergePair(
-    _board: IBoardState,
-    posA: CellPosition,
-    plateA: Plate,
-    posB: CellPosition,
-    plateB: Plate,
-  ): MergeStep[] {
-    const steps: MergeStep[] = [];
-
-    // Determine target (earlier timestamp) and source (later timestamp)
-    let targetPos: CellPosition;
-    let sourcePos: CellPosition;
-    let target: Plate;
-    let source: Plate;
-
-    if ((plateA.placedTimestamp ?? 0) <= (plateB.placedTimestamp ?? 0)) {
-      target = plateA;
-      targetPos = posA;
-      source = plateB;
-      sourcePos = posB;
-    } else {
-      target = plateB;
-      targetPos = posB;
-      source = plateA;
-      sourcePos = posA;
-    }
-
-    // Find shared glass types
-    const sharedTypes = this.getSharedGlassTypes(target, source);
-
-    for (const glassType of sharedTypes) {
-      const sourceCount = source.glasses.filter((g) => g === glassType).length;
-      const targetTotal = target.glasses.length;
-      const transferCount = Math.min(sourceCount, 6 - targetTotal);
-
-      if (transferCount <= 0) continue;
-
-      // Transfer: remove from source, add to target
-      let removed = 0;
-      source.glasses = source.glasses.filter((g) => {
-        if (g === glassType && removed < transferCount) {
-          removed++;
-          return false;
-        }
-        return true;
-      });
-
-      for (let i = 0; i < transferCount; i++) {
-        target.glasses.push(glassType);
-      }
-
-      steps.push({
-        sourcePos,
-        targetPos,
-        glassType,
-        count: transferCount,
-      });
     }
 
     return steps;
@@ -178,26 +195,5 @@ export class MergeAlgorithm implements IMergeAlgorithm {
     }
 
     return eliminations;
-  }
-
-  /** Get glass types that exist in both plates */
-  private getSharedGlassTypes(a: Plate, b: Plate): GlassType[] {
-    const typesA = new Set(a.glasses);
-    const typesB = new Set(b.glasses);
-    const shared: GlassType[] = [];
-    for (const t of typesA) {
-      if (typesB.has(t)) {
-        shared.push(t);
-      }
-    }
-    return shared;
-  }
-
-  /** Create a canonical key for a pair of positions (order-independent) */
-  private pairKey(r1: number, c1: number, r2: number, c2: number): string {
-    if (r1 < r2 || (r1 === r2 && c1 < c2)) {
-      return `${r1},${c1}-${r2},${c2}`;
-    }
-    return `${r2},${c2}-${r1},${c1}`;
   }
 }
