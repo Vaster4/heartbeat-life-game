@@ -7,9 +7,23 @@ const GLASS_COLORS = [
   '#1E90FF', // 2: 蓝色
   '#FFA502', // 3: 橙色
   '#A855F7', // 4: 紫色
-  '#FFDD59', // 5: 黄色
-  '#FF6B81', // 6: 粉色
+  '#FFD700', // 5: 金黄色 (原黄色 #FFDD59 与橙色过近)
+  '#FF1493', // 6: 洋红色 (原粉色 #FF6B81 与红色过近)
   '#00D2D3', // 7: 青色
+];
+
+/** Shape types for each glass type to improve distinguishability */
+type GlassShape = 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon' | 'star' | 'heart' | 'pentagon';
+
+const GLASS_SHAPES: GlassShape[] = [
+  'circle',    // 0: 红色 - 圆形
+  'square',    // 1: 绿色 - 方形
+  'triangle',  // 2: 蓝色 - 三角形
+  'diamond',   // 3: 橙色 - 菱形
+  'hexagon',   // 4: 紫色 - 六边形
+  'star',      // 5: 金黄色 - 星形
+  'heart',     // 6: 洋红色 - 心形
+  'pentagon',  // 7: 青色 - 五边形
 ];
 
 const BG_COLOR = '#1a1a2e';
@@ -366,10 +380,7 @@ export class CanvasRenderer implements IRenderer {
     const glassR = fontSize * 0.5;
     let gx = x + ctx.measureText('目标酒杯: ').width + glassR;
     for (const gt of state.targetGlasses) {
-      ctx.fillStyle = getGlassColor(gt);
-      ctx.beginPath();
-      ctx.arc(gx, targetY + glassR, glassR, 0, Math.PI * 2);
-      ctx.fill();
+      this.drawGlass(ctx, gx, targetY + glassR, glassR, gt);
       gx += glassR * 2.5;
     }
 
@@ -436,13 +447,7 @@ export class CanvasRenderer implements IRenderer {
 
       if (i < plate.glasses.length) {
         const gt = plate.glasses[i]!;
-        ctx.fillStyle = getGlassColor(gt);
-        ctx.beginPath();
-        ctx.arc(gx, gy, glassR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
+        this.drawGlass(ctx, gx, gy, glassR, gt);
       } else {
         // Empty slot
         ctx.strokeStyle = '#ccc';
@@ -452,6 +457,115 @@ export class CanvasRenderer implements IRenderer {
         ctx.stroke();
       }
     }
+  }
+
+  private drawGlass(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, type: GlassType): void {
+    const color = getGlassColor(type);
+    const shape = GLASS_SHAPES[type % GLASS_SHAPES.length] ?? 'circle';
+
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 0.5;
+
+    ctx.beginPath();
+    switch (shape) {
+      case 'circle':
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        break;
+      case 'square':
+        ctx.rect(x - radius * 0.85, y - radius * 0.85, radius * 1.7, radius * 1.7);
+        break;
+      case 'triangle':
+        this.drawTriangle(ctx, x, y, radius);
+        break;
+      case 'diamond':
+        this.drawDiamond(ctx, x, y, radius);
+        break;
+      case 'hexagon':
+        this.drawHexagon(ctx, x, y, radius);
+        break;
+      case 'star':
+        this.drawStar(ctx, x, y, radius);
+        break;
+      case 'heart':
+        this.drawHeart(ctx, x, y, radius);
+        break;
+      case 'pentagon':
+        this.drawPentagon(ctx, x, y, radius);
+        break;
+    }
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  private drawTriangle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+    const h = r * 1.2;
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x + h * 0.866, y + h * 0.5);
+    ctx.lineTo(x - h * 0.866, y + h * 0.5);
+    ctx.closePath();
+  }
+
+  private drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+    const d = r * 1.2;
+    ctx.moveTo(x, y - d);
+    ctx.lineTo(x + d, y);
+    ctx.lineTo(x, y + d);
+    ctx.lineTo(x - d, y);
+    ctx.closePath();
+  }
+
+  private drawHexagon(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 3) * i;
+      const px = x + r * Math.cos(angle);
+      const py = y + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  private drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+    const spikes = 5;
+    const outerR = r * 1.1;
+    const innerR = r * 0.5;
+    for (let i = 0; i < spikes * 2; i++) {
+      const angle = (Math.PI / spikes) * i - Math.PI / 2;
+      const radius = i % 2 === 0 ? outerR : innerR;
+      const px = x + radius * Math.cos(angle);
+      const py = y + radius * Math.sin(angle);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  private drawHeart(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+    const w = r * 0.9;
+    const h = r * 1.1;
+    // 心形底部尖点
+    ctx.moveTo(x, y + h * 0.8);
+    // 左下曲线
+    ctx.bezierCurveTo(x - w * 0.6, y + h * 0.4, x - w * 1.1, y + h * 0.1, x - w * 0.9, y - h * 0.2);
+    // 左上圆弧
+    ctx.bezierCurveTo(x - w * 0.7, y - h * 0.5, x - w * 0.3, y - h * 0.5, x, y - h * 0.1);
+    // 右上圆弧
+    ctx.bezierCurveTo(x + w * 0.3, y - h * 0.5, x + w * 0.7, y - h * 0.5, x + w * 0.9, y - h * 0.2);
+    // 右下曲线
+    ctx.bezierCurveTo(x + w * 1.1, y + h * 0.1, x + w * 0.6, y + h * 0.4, x, y + h * 0.8);
+    ctx.closePath();
+  }
+
+  private drawPentagon(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+    for (let i = 0; i < 5; i++) {
+      const angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
+      const px = x + r * Math.cos(angle);
+      const py = y + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
   }
 
   private drawStagingArea(ctx: CanvasRenderingContext2D, L: Layout, state: GameState): void {
