@@ -59,9 +59,18 @@ function main(): void {
   });
 
   // Expose logger download for debugging (press L key or call from console)
+  // Press D to toggle dump mode (board snapshot after each placement)
   window.addEventListener('keydown', (e) => {
     if (e.key === 'l' || e.key === 'L') {
       engine.logger.download(`game-log-${Date.now()}.txt`);
+    }
+    if (e.key === 'd' || e.key === 'D') {
+      engine.logger.dumpEnabled = !engine.logger.dumpEnabled;
+      renderer.dumpEnabled = engine.logger.dumpEnabled;
+      const status = engine.logger.dumpEnabled ? '开启' : '关闭';
+      engine.logger.info('DUMP', `棋盘快照模式: ${status}`);
+      console.log(`[DUMP] 棋盘快照模式: ${status}`);
+      renderer.renderState(engine.getState());
     }
   });
   // Also expose on window for console access

@@ -16,10 +16,15 @@ export interface LogEntry {
 export class GameLogger {
   private entries: LogEntry[] = [];
   private consoleEnabled: boolean;
+  private _dumpEnabled: boolean;
 
-  constructor(consoleEnabled = true) {
+  constructor(consoleEnabled = true, dumpEnabled = false) {
     this.consoleEnabled = consoleEnabled;
+    this._dumpEnabled = dumpEnabled;
   }
+
+  get dumpEnabled(): boolean { return this._dumpEnabled; }
+  set dumpEnabled(v: boolean) { this._dumpEnabled = v; }
 
   info(category: string, message: string): void {
     this.log('INFO', category, message);
@@ -36,6 +41,24 @@ export class GameLogger {
   /** 获取所有日志条目 */
   getEntries(): readonly LogEntry[] {
     return this.entries;
+  }
+
+  /**
+   * 输出棋盘快照（仅在 dumpEnabled 时生效）。
+   * 格式：每行一个格子，(row,col): id [glasses] ts=N，空格子不输出。
+   */
+  dump(label: string, rows: number, cols: number, getCell: (r: number, c: number) => { id: string; glasses: number[]; placedTimestamp: number | null } | null): void {
+    if (!this._dumpEnabled) return;
+    const lines: string[] = [`--- ${label} ---`];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cell = getCell(r, c);
+        if (cell && cell.glasses.length > 0) {
+          lines.push(`  (${r},${c}): ${cell.id} [${cell.glasses.join(',')}] ts=${cell.placedTimestamp ?? '?'}`);
+        }
+      }
+    }
+    this.log('DEBUG', 'DUMP', lines.join('\n'));
   }
 
   /** 清空日志 */

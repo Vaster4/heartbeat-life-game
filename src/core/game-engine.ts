@@ -129,16 +129,20 @@ export class GameEngine implements IGameEngine {
 
     this.logger.info('PLACE', `放置盘子 id=${plate.id} 到 (${row},${col}) | ts=${plate.placedTimestamp} | 酒杯: [${plate.glasses.join(', ')}]`);
 
+    // Dump board state before merge
+    this.logger.dump('放置后/合并前', this.board.rows, this.board.cols, (r, c) => this.board.getCell(r, c));
+
     // Run merge/elimination resolution until stable
     const resolution = this.mergeAlgorithm.resolveUntilStable(this.board);
 
-    // Log merge steps
+    // Calculate score from eliminations
+    let scoreGained = 0;
+
+    // Log merge steps and eliminations first
     for (const step of resolution.mergeSteps) {
       this.logger.info('MERGE', `合并: (${step.sourcePos.row},${step.sourcePos.col}) → (${step.targetPos.row},${step.targetPos.col}) | 类型=${step.glassType} × ${step.count}`);
     }
 
-    // Calculate score from eliminations
-    let scoreGained = 0;
     for (const elim of resolution.eliminations) {
       if (elim.reason === 'full_same_type') {
         this.combo++;
@@ -154,6 +158,11 @@ export class GameEngine implements IGameEngine {
       } else {
         this.logger.info('ELIM', `空盘消除: (${elim.position.row},${elim.position.col})`);
       }
+    }
+
+    // Dump board state after merge/elimination
+    if (resolution.mergeSteps.length > 0 || resolution.eliminations.length > 0) {
+      this.logger.dump('合并/消除后', this.board.rows, this.board.cols, (r, c) => this.board.getCell(r, c));
     }
     this.score += scoreGained;
 

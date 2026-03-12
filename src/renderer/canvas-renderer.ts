@@ -73,6 +73,9 @@ export class CanvasRenderer implements IRenderer {
   private lastState: GameState | null = null;
   private isGameOver = false;
 
+  /** 是否显示 dump 模式指示器 */
+  dumpEnabled = false;
+
   init(container: HTMLElement): void {
     this.container = container;
     this.canvas = document.createElement('canvas');
@@ -390,6 +393,27 @@ export class CanvasRenderer implements IRenderer {
     ctx.fillStyle = TEXT_COLOR;
     ctx.font = `${fontSize * 0.85}px sans-serif`;
     ctx.fillText(`刷新距离: ${refreshDist}`, gx + glassR, targetY);
+
+    // Dump mode indicator (top-right corner)
+    if (this.dumpEnabled) {
+      const dotR = fontSize * 0.35;
+      const labelFont = `bold ${fontSize * 0.75}px sans-serif`;
+      ctx.font = labelFont;
+      const label = 'DUMP';
+      const labelW = ctx.measureText(label).width;
+      const rx = L.width - L.padding - labelW - dotR * 3;
+      const ry = y + fontSize * 0.7;
+
+      // Pulsing red dot
+      ctx.beginPath();
+      ctx.arc(rx, ry, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = '#FF3B30';
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = '#FF3B30';
+      ctx.fillText(label, rx + dotR * 1.5, ry - fontSize * 0.3);
+    }
   }
 
   private drawBoard(ctx: CanvasRenderingContext2D, L: Layout, state: GameState): void {
