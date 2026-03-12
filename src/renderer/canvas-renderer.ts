@@ -79,6 +79,12 @@ export class CanvasRenderer implements IRenderer {
   /** 是否显示导出日志按钮（内测模式） */
   showExportButton = false;
 
+  /** 是否处于编辑模式 */
+  editMode = false;
+
+  /** 编辑模式选中位置 */
+  editSelection: { type: 'board'; row: number; col: number } | { type: 'staging'; index: number } | null = null;
+
   init(container: HTMLElement): void {
     this.container = container;
     this.canvas = document.createElement('canvas');
@@ -170,6 +176,11 @@ export class CanvasRenderer implements IRenderer {
 
     if (state.gameOver) {
       this.drawGameOver(ctx, L, state);
+    }
+
+    // Edit mode overlay
+    if (this.editMode) {
+      this.drawEditModeOverlay(ctx, L);
     }
 
     // Export log button (alpha test mode)
@@ -458,6 +469,18 @@ export class CanvasRenderer implements IRenderer {
         if (cell) {
           this.drawPlate(ctx, cx, cy, cellSize, cell);
         }
+
+        // Edit mode selection highlight
+        if (this.editMode && this.editSelection?.type === 'board'
+            && this.editSelection.row === r && this.editSelection.col === c) {
+          ctx.save();
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 3;
+          ctx.setLineDash([6, 3]);
+          ctx.strokeRect(cx + 1, cy + 1, cellSize - 2, cellSize - 2);
+          ctx.setLineDash([]);
+          ctx.restore();
+        }
       }
     }
   }
@@ -641,6 +664,18 @@ export class CanvasRenderer implements IRenderer {
         ctx.strokeRect(sx, sy, stagingCellSize, stagingCellSize);
         ctx.setLineDash([]);
       }
+
+      // Edit mode selection highlight for staging
+      if (this.editMode && this.editSelection?.type === 'staging'
+          && this.editSelection.index === i) {
+        ctx.save();
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 3]);
+        ctx.strokeRect(sx - 2, sy - 2, stagingCellSize + 4, stagingCellSize + 4);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
     }
   }
 
@@ -678,6 +713,32 @@ export class CanvasRenderer implements IRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('重新开始', btn.x + btn.width / 2, btn.y + btn.height / 2);
+  }
+
+  private drawEditModeOverlay(ctx: CanvasRenderingContext2D, L: Layout): void {
+    // Top banner
+    const bannerH = Math.max(28, L.height * 0.04);
+    ctx.fillStyle = 'rgba(233, 69, 96, 0.85)';
+    ctx.fillRect(0, 0, L.width, bannerH);
+
+    const fontSize = Math.max(12, bannerH * 0.55);
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('编辑模式 — 点击选中，0-7添加酒杯，Backspace删除，Enter开始', L.width / 2, bannerH / 2);
+    ctx.restore();
+
+    // Dashed border around board
+    const { boardX, boardY, boardWidth, boardHeight } = L;
+    ctx.save();
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(boardX - 2, boardY - 2, boardWidth + 4, boardHeight + 4);
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   private drawExportButton(ctx: CanvasRenderingContext2D): void {

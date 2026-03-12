@@ -235,6 +235,38 @@ export class GameEngine implements IGameEngine {
     return this.gameOver;
   }
 
+  /**
+   * 加载外部编辑的状态（编辑模式用）。
+   * 直接覆盖棋盘和临时区，重置得分和轮次状态。
+   */
+  loadEditedState(
+    cells: (Plate | null)[][],
+    staging: (Plate | null)[],
+  ): void {
+    this.board = new BoardState(this.config.boardRows, this.config.boardCols);
+    this.placementCounter = 0;
+    for (let r = 0; r < this.config.boardRows; r++) {
+      for (let c = 0; c < this.config.boardCols; c++) {
+        const plate = cells[r]?.[c] ?? null;
+        if (plate) {
+          plate.placedTimestamp = ++this.placementCounter;
+          this.board.setCell(r, c, plate);
+        }
+      }
+    }
+    this.stagingArea = staging.map(p => p ? { ...p, placedTimestamp: null } : null);
+    this.score = 0;
+    this.combo = 0;
+    this.round = 1;
+    this.roundEliminations = 0;
+    this.roundBonusAwarded = 0;
+    this.totalFullEliminations = 0;
+    this.selectedPlateIndex = null;
+    this.gameOver = false;
+    this.logger.info('EDIT', `编辑模式加载完成 | 棋盘盘子: ${cells.flat().filter(Boolean).length} | 临时区盘子: ${staging.filter(Boolean).length}`);
+  }
+
+
   // --- Private helpers ---
 
   /** Select m random target glass types from available types (no duplicates) */
