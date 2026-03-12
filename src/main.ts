@@ -58,6 +58,15 @@ function main(): void {
     renderer.renderState(engine.getState());
   });
 
+  // Expose logger download for debugging (press L key or call from console)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'l' || e.key === 'L') {
+      engine.logger.download(`game-log-${Date.now()}.txt`);
+    }
+  });
+  // Also expose on window for console access
+  (window as unknown as Record<string, unknown>).gameLogger = engine.logger;
+
   // 6. Handle window resize
   window.addEventListener('resize', () => {
     renderer.resize();

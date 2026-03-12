@@ -11,6 +11,7 @@ import { BoardState } from './board';
 import { PlateGenerator, type RandomFn } from './plate-generator';
 import { MergeAlgorithm } from './merge';
 import { ScoreCalculator } from './score';
+import { GameLogger } from './logger';
 
 /**
  * 游戏引擎：协调棋盘、盘子生成器等子系统。
@@ -23,6 +24,7 @@ export class GameEngine implements IGameEngine {
   private readonly mergeAlgorithm: MergeAlgorithm;
   private readonly scoreCalculator: ScoreCalculator;
   private readonly random: RandomFn;
+  readonly logger: GameLogger;
 
   private stagingArea: (Plate | null)[] = [];
   private score = 0;
@@ -45,9 +47,11 @@ export class GameEngine implements IGameEngine {
     this.plateGenerator = new PlateGenerator(this.config, random);
     this.mergeAlgorithm = new MergeAlgorithm();
     this.scoreCalculator = new ScoreCalculator();
+    this.logger = new GameLogger();
   }
 
   start(): void {
+    this.logger.clear();
     this.board = new BoardState(this.config.boardRows, this.config.boardCols);
     this.score = 0;
     this.combo = 0;
@@ -60,6 +64,7 @@ export class GameEngine implements IGameEngine {
     this.placementCounter = 0;
 
     this.targetGlasses = this.selectTargetGlasses();
+    this.logger.info('GAME', `游戏开始 | 棋盘 ${this.config.boardRows}×${this.config.boardCols} | 目标酒杯: [${this.targetGlasses.join(', ')}]`);
     this.generateNewRound();
   }
 
@@ -75,6 +80,8 @@ export class GameEngine implements IGameEngine {
       return;
     }
     this.selectedPlateIndex = index;
+    const plate = this.stagingArea[index]!;
+    this.logger.debug('SELECT', `选中临时区盘子 #${index} | id=${plate.id} | 酒杯: [${plate.glasses.join(', ')}]`);
   }
 
   placePlate(row: number, col: number): PlacementResult {
@@ -120,8 +127,15 @@ export class GameEngine implements IGameEngine {
     this.stagingArea[this.selectedPlateIndex] = null;
     this.selectedPlateIndex = null;
 
+    this.logger.info('PLACE', `放置盘子 id=${plate.id} 到 (${row},${col}) | ts=${plate.placedTimestamp} | 酒杯: [${plate.glasses.join(', ')}]`);
+
     // Run merge/elimination resolution until stable
     const resolution = this.mergeAlgorithm.resolveUntilStable(this.board);
+
+    // Log merge steps
+    for (const step of resolution.mergeSteps) {
+      this.logger.info('MERGE', `合并: (${step.sourcePos.row},${step.sourcePos.col}) → (${step.targetPos.row},${step.targetPos.col}) | 类型=${step.glassType} × ${step.count}`);
+    }
 
     // Calculate score from eliminations
     let scoreGained = 0;
@@ -136,8 +150,10 @@ export class GameEngine implements IGameEngine {
         scoreGained += points;
         this.roundEliminations++;
         this.totalFullEliminations++;
+        this.logger.info('ELIM', `满盘消除: (${elim.position.row},${elim.position.col}) | 类型=${elim.plate.glasses[0]} | combo=${this.combo} | +${points}分`);
+      } else {
+        this.logger.info('ELIM', `空盘消除: (${elim.position.row},${elim.position.col})`);
       }
-      // empty plate elimination: 0 points (calculateEliminationScore returns 0)
     }
     this.score += scoreGained;
 
@@ -145,6 +161,7 @@ export class GameEngine implements IGameEngine {
     if (this.totalFullEliminations >= this.config.targetGlassRefreshThreshold) {
       this.targetGlasses = this.selectTargetGlasses();
       this.totalFullEliminations = 0;
+      this.logger.info('TARGET', `目标酒杯刷新: [${this.targetGlasses.join(', ')}]`);
     }
 
     // Calculate round bonus: only add the INCREMENTAL bonus (new total - previously awarded)
@@ -157,12 +174,19 @@ export class GameEngine implements IGameEngine {
     this.score += roundBonuses;
     scoreGained += roundBonuses;
 
+    if (roundBonuses > 0) {
+      this.logger.info('BONUS', `轮次奖励: +${roundBonuses}分 | 本轮消除=${this.roundEliminations}`);
+    }
+
+    this.logger.info('SCORE', `本次得分: +${scoreGained} | 总分: ${this.score}`);
+
     // Check if staging area is empty → new round or game over
     const stagingEmpty = this.stagingArea.every((p) => p === null);
 
     // Game-over check: board full after merge/elimination (no empty cells left)
     if (!this.board.hasEmptyCell()) {
       this.gameOver = true;
+      this.logger.info('GAME', `游戏结束 | 最终得分: ${this.score} | 轮次: ${this.round}`);
     } else if (stagingEmpty) {
       this.startNewRound();
     }
@@ -225,6 +249,8 @@ export class GameEngine implements IGameEngine {
   private generateNewRound(): void {
     const plates = this.plateGenerator.generatePlates(this.config.platesPerRound);
     this.stagingArea = plates;
+    const desc = plates.map((p, i) => `#${i}(id=${p.id}, 酒杯=[${p.glasses.join(',')}])`).join(' | ');
+    this.logger.info('ROUND', `第 ${this.round} 轮 | 发放盘子: ${desc}`);
   }
 
   /** Start a new round: increment round counter, reset round eliminations, generate plates */
