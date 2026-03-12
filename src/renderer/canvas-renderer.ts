@@ -383,6 +383,7 @@ export class CanvasRenderer implements IRenderer {
     const fontSize = Math.max(12, Math.min(18, L.width * 0.04));
 
     ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
 
     // Score
     ctx.fillStyle = TEXT_COLOR;
@@ -683,6 +684,7 @@ export class CanvasRenderer implements IRenderer {
     const btn = this.getExportButtonBounds();
     if (!btn) return;
 
+    ctx.save();
     const r = btn.height * 0.25;
     this.roundRect(ctx, btn.x, btn.y, btn.width, btn.height, r);
     ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
@@ -697,6 +699,7 @@ export class CanvasRenderer implements IRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('导出日志', btn.x + btn.width / 2, btn.y + btn.height / 2);
+    ctx.restore();
   }
 
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
