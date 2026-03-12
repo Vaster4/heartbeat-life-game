@@ -2,14 +2,14 @@ import type { GameState, IRenderer, MergeStep, EliminationEvent, Plate, GlassTyp
 
 /** Color palette for glass types */
 const GLASS_COLORS = [
-  '#FF6B6B', // 0: red
-  '#4ECDC4', // 1: teal
-  '#45B7D1', // 2: blue
-  '#96CEB4', // 3: green
-  '#FFEAA7', // 4: yellow
-  '#DDA0DD', // 5: plum
-  '#FF8C42', // 6: orange
-  '#98D8C8', // 7: mint
+  '#FF4757', // 0: 红色
+  '#2ED573', // 1: 绿色
+  '#1E90FF', // 2: 蓝色
+  '#FFA502', // 3: 橙色
+  '#A855F7', // 4: 紫色
+  '#FFDD59', // 5: 黄色
+  '#FF6B81', // 6: 粉色
+  '#00D2D3', // 7: 青色
 ];
 
 const BG_COLOR = '#1a1a2e';
