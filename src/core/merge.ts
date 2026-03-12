@@ -17,7 +17,7 @@ const MAX_ITERATIONS = 100;
  * 核心规则：
  * 1. 扫描棋盘，对每个盘子 P，检查它与相邻盘子是否有共同酒杯类型
  * 2. 如果没有 → 跳过
- * 3. 如果有 → P + 所有相邻盘子组成"参与组"
+ * 3. 如果有 → P + 通过直接相邻共同类型连通的盘子组成"参与组"
  * 4. 参与组内所有酒杯按类型归类，每种类型尽量集中到一个盘子
  * 5. 盘子按时间戳升序排列，类型按数量降序排列
  *    最早的盘子承载最多的类型，依次分配
@@ -91,13 +91,13 @@ export class MergeAlgorithm implements IMergeAlgorithm {
 
   /**
    * 迭代式 BFS 构建参与组：
-   * 1. 从起始盘子出发，检查相邻盘子是否与组内任何成员有共同类型
+   * 1. 从起始盘子出发，检查相邻盘子是否与其直接相邻的组内成员有共同类型
    * 2. 如果有，纳入组，并重新检查新成员的邻居
    * 3. 重复直到没有新成员加入
    *
-   * 这样可以处理"A-B-C"场景：A 和 C 有共同类型但 B 没有，
-   * 只要 A 和 B 相邻且有共同类型，B 加入后 C 作为 B 的邻居
-   * 会被检查是否与组内（A 或 B）有共同类型。
+   * 关键：邻居必须与其直接相邻的组内成员有共同类型才能纳入，
+   * 而不是与整个组的类型集合比较。这防止了类型通过中间盘子
+   * "传播"到不相关的远端盘子。
    */
   private buildMergeGroup(
     board: IBoardState,
@@ -111,32 +111,26 @@ export class MergeAlgorithm implements IMergeAlgorithm {
     ];
     const inGroup = new Set<string>([`${start.row},${start.col}`]);
 
-    // 收集组内所有酒杯类型（用于快速判断共同类型）
-    const groupTypes = new Set<GlassType>(startPlate.glasses);
-
     let changed = true;
     while (changed) {
       changed = false;
-      // 遍历当前组内所有成员的邻居
       for (let gi = 0; gi < group.length; gi++) {
         const member = group[gi]!;
+        const memberTypes = new Set<GlassType>(member.plate.glasses);
         for (const nPos of board.getNeighbors(member.pos.row, member.pos.col)) {
           const nKey = `${nPos.row},${nPos.col}`;
           if (inGroup.has(nKey)) continue;
           const neighbor = board.getCell(nPos.row, nPos.col);
           if (!neighbor || neighbor.glasses.length === 0) continue;
 
-          // 检查邻居是否与组内有共同类型
+          // 检查邻居是否与这个直接相邻的组内成员有共同类型
           let shared = false;
           for (const g of neighbor.glasses) {
-            if (groupTypes.has(g)) { shared = true; break; }
+            if (memberTypes.has(g)) { shared = true; break; }
           }
           if (shared) {
             inGroup.add(nKey);
             group.push({ pos: nPos, plate: neighbor });
-            for (const g of neighbor.glasses) {
-              groupTypes.add(g);
-            }
             changed = true;
           }
         }
