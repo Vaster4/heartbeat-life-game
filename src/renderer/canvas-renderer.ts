@@ -57,6 +57,7 @@ export class CanvasRenderer implements IRenderer {
   private container: HTMLElement | null = null;
   private layout: Layout | null = null;
   private lastState: GameState | null = null;
+  private isGameOver = false;
 
   init(container: HTMLElement): void {
     this.container = container;
@@ -130,6 +131,7 @@ export class CanvasRenderer implements IRenderer {
   renderState(state: GameState): void {
     if (!this.ctx || !this.layout) return;
     this.lastState = state;
+    this.isGameOver = state.gameOver;
     const ctx = this.ctx;
     const L = this.layout;
 
@@ -158,7 +160,7 @@ export class CanvasRenderer implements IRenderer {
 
   /** Returns the restart button bounds (in CSS pixels) for hit-testing. */
   getRestartButtonBounds(): { x: number; y: number; width: number; height: number } | null {
-    if (!this.layout) return null;
+    if (!this.layout || !this.isGameOver) return null;
     const L = this.layout;
     const btnW = Math.min(200, L.width * 0.45);
     const btnH = Math.max(40, L.height * 0.06);
