@@ -159,13 +159,12 @@ export class GameEngine implements IGameEngine {
 
     // Check if staging area is empty → new round or game over
     const stagingEmpty = this.stagingArea.every((p) => p === null);
-    if (stagingEmpty) {
-      // Game-over check AFTER merge/elimination (eliminations can free cells)
-      if (!this.board.hasEmptyCell()) {
-        this.gameOver = true;
-      } else {
-        this.startNewRound();
-      }
+
+    // Game-over check: board full after merge/elimination (no empty cells left)
+    if (!this.board.hasEmptyCell()) {
+      this.gameOver = true;
+    } else if (stagingEmpty) {
+      this.startNewRound();
     }
 
     return {
