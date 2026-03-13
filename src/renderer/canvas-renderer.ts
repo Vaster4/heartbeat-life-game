@@ -187,6 +187,9 @@ export class CanvasRenderer implements IRenderer {
     if (this.showExportButton) {
       this.drawExportButton(ctx);
     }
+
+    // Version label at bottom
+    this.drawVersionLabel(ctx, L);
   }
 
   /** Expose the current layout for input hit-testing. */
@@ -760,6 +763,18 @@ export class CanvasRenderer implements IRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('导出日志', btn.x + btn.width / 2, btn.y + btn.height / 2);
+    ctx.restore();
+  }
+  private drawVersionLabel(ctx: CanvasRenderingContext2D, L: Layout): void {
+    const label = __DEV_MODE__
+      ? `v${__VERSION__}-dev (${__BUILD_DATE__})`
+      : `v${__VERSION__}`;
+    ctx.save();
+    ctx.font = `${Math.max(10, L.width * 0.022)}px sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(label, L.width / 2, L.height - 4);
     ctx.restore();
   }
 
