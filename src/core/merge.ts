@@ -141,13 +141,14 @@ export class MergeAlgorithm implements IMergeAlgorithm {
   }
 
   /**
-   * 对参与组执行重分配：
-   * 1. 收集所有酒杯，按类型统计
-   * 2. 盘子按时间戳升序（早的优先）
-   * 3. 类型按数量降序（多的优先），数量相同按类型编号升序
-   * 4. 依次分配：最早盘子←最多类型，第二早←第二多...
-   * 5. 如果类型数 > 盘子数，最后一个盘子承载剩余所有类型
-   * 6. 每个盘子最多 6 个酒杯
+   * 对参与组执行共同类型定向转移 + 非共同类型回推：
+   * 1. 收集组内所有相邻盘子对
+   * 2. 对每对相邻盘子（新→老方向）：
+   *    a. 共同类型的酒杯从新盘子转移到老盘子（不超过6上限）
+   *    b. 老盘子上的非共同类型酒杯推回给新盘子（不超过6上限）
+   * 3. 这样每个盘子趋向单一类型化
+   *
+   * 按时间戳差从大到小处理（最新→最老的对优先）。
    */
   private redistributeGroup(
     group: { pos: CellPosition; plate: Plate }[],
@@ -156,85 +157,62 @@ export class MergeAlgorithm implements IMergeAlgorithm {
 
     const steps: MergeStep[] = [];
 
-    // 1. 统计所有酒杯
-    const typeCounts = new Map<GlassType, number>();
+    // 收集组内所有相邻盘子对（去重）
+    const pairs: [typeof group[0], typeof group[0]][] = [];
+    const pairSet = new Set<string>();
     for (const m of group) {
-      for (const g of m.plate.glasses) {
-        typeCounts.set(g, (typeCounts.get(g) ?? 0) + 1);
+      for (const other of group) {
+        if (m === other) continue;
+        const k1 = `${m.pos.row},${m.pos.col}`;
+        const k2 = `${other.pos.row},${other.pos.col}`;
+        const pairKey = k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
+        if (pairSet.has(pairKey)) continue;
+        if (Math.abs(m.pos.row - other.pos.row) + Math.abs(m.pos.col - other.pos.col) !== 1) continue;
+        pairSet.add(pairKey);
+        pairs.push([m, other]);
       }
     }
 
-    // 2. 类型按数量降序，相同数量按类型编号升序
-    const sortedTypes = [...typeCounts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+    // 按时间戳差从大到小排序
+    pairs.sort((a, b) => {
+      const diffA = Math.abs((a[0].plate.placedTimestamp ?? 0) - (a[1].plate.placedTimestamp ?? 0));
+      const diffB = Math.abs((b[0].plate.placedTimestamp ?? 0) - (b[1].plate.placedTimestamp ?? 0));
+      return diffB - diffA;
+    });
 
-    // 3. 盘子按时间戳升序
-    const sortedPlates = [...group]
-      .sort((a, b) =>
-        (a.plate.placedTimestamp ?? 0) - (b.plate.placedTimestamp ?? 0));
+    for (const [a, b] of pairs) {
+      const tsA = a.plate.placedTimestamp ?? 0;
+      const tsB = b.plate.placedTimestamp ?? 0;
+      if (tsA === tsB) continue;
+      const source = tsA > tsB ? a : b; // 较新
+      const target = tsA > tsB ? b : a; // 较老
 
-    // 4. 记录原始状态
-    const originalGlasses = new Map<string, GlassType[]>();
-    for (const m of group) {
-      originalGlasses.set(`${m.pos.row},${m.pos.col}`, [...m.plate.glasses]);
-    }
-
-    // 5. 分配酒杯到盘子
-    const assignment = new Map<string, GlassType[]>();
-    for (const m of sortedPlates) {
-      assignment.set(`${m.pos.row},${m.pos.col}`, []);
-    }
-
-    for (let i = 0; i < sortedTypes.length; i++) {
-      const [glassType, count] = sortedTypes[i]!;
-      // 分配到第 i 个盘子，如果 i >= 盘子数则分配到最后一个
-      const targetIdx = Math.min(i, sortedPlates.length - 1);
-      const target = sortedPlates[targetIdx]!;
-      const key = `${target.pos.row},${target.pos.col}`;
-      const glasses = assignment.get(key)!;
-      const toAdd = Math.min(count, 6 - glasses.length);
-      for (let j = 0; j < toAdd; j++) {
-        glasses.push(glassType);
+      const targetTypes = new Set(target.plate.glasses);
+      const sharedTypes = new Set<GlassType>();
+      for (const g of source.plate.glasses) {
+        if (targetTypes.has(g)) sharedTypes.add(g);
       }
-    }
+      if (sharedTypes.size === 0) continue;
 
-    // 6. 应用分配，生成 MergeStep
-    for (const member of sortedPlates) {
-      const key = `${member.pos.row},${member.pos.col}`;
-      const newGlasses = assignment.get(key)!;
-      const oldGlasses = originalGlasses.get(key)!;
-
-      const oldCounts = countTypes(oldGlasses);
-      const newCounts = countTypes(newGlasses);
-
-      // 记录新增的酒杯来源
-      for (const [type, newCount] of newCounts) {
-        const oldCount = oldCounts.get(type) ?? 0;
-        const gained = newCount - oldCount;
-        if (gained <= 0) continue;
-
-        let remaining = gained;
-        for (const source of sortedPlates) {
-          if (remaining <= 0) break;
-          if (source === member) continue;
-          const srcKey = `${source.pos.row},${source.pos.col}`;
-          const srcOld = countTypes(originalGlasses.get(srcKey)!);
-          const srcNew = countTypes(assignment.get(srcKey)!);
-          const lost = (srcOld.get(type) ?? 0) - (srcNew.get(type) ?? 0);
-          if (lost > 0) {
-            const transfer = Math.min(remaining, lost);
-            steps.push({
-              sourcePos: source.pos,
-              targetPos: member.pos,
-              glassType: type,
-              count: transfer,
-            });
-            remaining -= transfer;
-          }
+      // Step 1: 共同类型从 source → target
+      for (const type of sharedTypes) {
+        const count = transferGlasses(source.plate, target.plate, type);
+        if (count > 0) {
+          steps.push({ sourcePos: source.pos, targetPos: target.pos, glassType: type, count });
         }
       }
 
-      member.plate.glasses = newGlasses;
+      // Step 2: target 上的非共同类型推回 source
+      const nonSharedTypes = new Set<GlassType>();
+      for (const g of target.plate.glasses) {
+        if (!sharedTypes.has(g)) nonSharedTypes.add(g);
+      }
+      for (const type of nonSharedTypes) {
+        const count = transferGlasses(target.plate, source.plate, type);
+        if (count > 0) {
+          steps.push({ sourcePos: target.pos, targetPos: source.pos, glassType: type, count });
+        }
+      }
     }
 
     return steps;
@@ -275,11 +253,26 @@ export class MergeAlgorithm implements IMergeAlgorithm {
   }
 }
 
-/** 统计酒杯类型数量 */
-function countTypes(glasses: GlassType[]): Map<GlassType, number> {
-  const counts = new Map<GlassType, number>();
-  for (const g of glasses) {
-    counts.set(g, (counts.get(g) ?? 0) + 1);
+
+/**
+ * 将 from 盘子中指定类型的所有酒杯转移到 to 盘子（不超过6上限）。
+ * 直接修改两个盘子的 glasses 数组，返回实际转移数量。
+ */
+function transferGlasses(from: Plate, to: Plate, type: GlassType): number {
+  const indices: number[] = [];
+  for (let i = 0; i < from.glasses.length; i++) {
+    if (from.glasses[i] === type) indices.push(i);
   }
-  return counts;
+  const capacity = 6 - to.glasses.length;
+  const count = Math.min(indices.length, capacity);
+  if (count <= 0) return 0;
+
+  const toRemove = indices.slice(0, count);
+  for (let i = toRemove.length - 1; i >= 0; i--) {
+    from.glasses.splice(toRemove[i]!, 1);
+  }
+  for (let i = 0; i < count; i++) {
+    to.glasses.push(type);
+  }
+  return count;
 }

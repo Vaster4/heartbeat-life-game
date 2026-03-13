@@ -3,11 +3,16 @@ import { BoardState } from '../../src/core/board';
 import { MergeAlgorithm } from '../../src/core/merge';
 
 describe('Merge bug repro: three adjacent plates with shared type', () => {
-  it('should merge all greens to the earliest plate (B) when A is placed adjacent to B and C', () => {
+  it('should merge greens via pairwise transfer when A is placed between B and C', () => {
     // Layout (1 row, 3 cols): B(col0) - A(col1) - C(col2)
     // B: 1 green, timestamp=1 (earliest)
     // C: 1 green, timestamp=2
     // A: 1 green, timestamp=3 (just placed)
+    //
+    // 新算法：逐对相邻转移
+    // Pair (B,A): A 的 green → B. B=[green,green], A=[]
+    // Pair (A,C): A 已空，无共同类型，跳过
+    // A 空盘消除后 B 和 C 不相邻，C 的 green 留在原处
     const board = new BoardState(1, 3);
     const GREEN = 0;
 
@@ -18,17 +23,16 @@ describe('Merge bug repro: three adjacent plates with shared type', () => {
     const algo = new MergeAlgorithm();
     algo.resolveUntilStable(board);
 
-    // B should have all 3 greens (or B eliminated if it triggers other rules)
     const B = board.getCell(0, 0);
     const A = board.getCell(0, 1);
     const C = board.getCell(0, 2);
 
-    // B (earliest) should have collected all greens
-    expect(B?.glasses.filter(g => g === GREEN).length).toBe(3);
-    // A should have no greens left
-    expect(A === null || A.glasses.filter(g => g === GREEN).length === 0).toBe(true);
-    // C should have no greens left
-    expect(C === null || C.glasses.filter(g => g === GREEN).length === 0).toBe(true);
+    // B 收到 A 的 green
+    expect(B?.glasses.filter(g => g === GREEN).length).toBe(2);
+    // A 空盘消除
+    expect(A).toBeNull();
+    // C 的 green 留在原处（与 B 不相邻）
+    expect(C?.glasses.filter(g => g === GREEN).length).toBe(1);
   });
 
   it('should merge greens to earliest when B and C are also adjacent', () => {
