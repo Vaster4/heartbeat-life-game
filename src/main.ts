@@ -4,8 +4,8 @@ import { CanvasRenderer } from './renderer/canvas-renderer';
 import { InputHandler } from './renderer/input-handler';
 import type { Plate, Cell } from './types';
 
-/** 内测模式：dump 常开 + 显示导出日志按钮 */
-const ALPHA_TEST = true;
+/** 内测模式：由构建参数 ALPHA_TEST=true 控制 */
+const ALPHA_TEST = __ALPHA_TEST__;
 
 /** 编辑模式选中位置 */
 type EditSelection =

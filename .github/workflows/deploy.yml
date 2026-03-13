@@ -2,7 +2,13 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [master, release/alpha-0.1.0]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      alpha:
+        description: 'Enable alpha test mode'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,6 +33,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          ALPHA_TEST: ${{ inputs.alpha && 'true' || 'false' }}
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:

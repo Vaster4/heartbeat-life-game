@@ -9,6 +9,9 @@ export default defineConfig({
       '@types': resolve(__dirname, 'src/types'),
     },
   },
+  define: {
+    __ALPHA_TEST__: JSON.stringify(process.env.ALPHA_TEST === 'true'),
+  },
   build: {
     outDir: 'dist',
     target: 'es2020',
