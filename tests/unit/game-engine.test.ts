@@ -146,7 +146,7 @@ describe('GameEngine', () => {
     });
 
     it('records incrementing placedTimestamp', () => {
-      const engine = new GameEngine(undefined, () => 0.5);
+      const engine = new GameEngine({ initialObstacles: 0 }, () => 0.5);
       engine.start();
 
       // Place plates non-adjacently to avoid merge eliminating one
@@ -210,36 +210,35 @@ describe('GameEngine', () => {
 
   describe('game over', () => {
     it('triggers game over when board is full after placing last staging plate', () => {
-      // Use a small 2x2 board with 2 plates per round.
-      // Use a cycling random that produces distinct glass types per plate
-      // so no merges happen between adjacent plates.
+      // 2x2 board, 2 plates/round, no obstacles, 4 glass types so each plate is unique
+      // randomInt(0,3) = floor(r*4): type0=r<0.25, type1=0.25<=r<0.5, type2=0.5<=r<0.75, type3=r>=0.75
       let callIndex = 0;
-      // Sequence: each plate gets 1 glass of a unique type
-      // For PlateGenerator: randomInt(min,max) = min + floor(random * (max-min+1))
-      // We need glassCount=1 (random for count → 0.0 gives min) and distinct types per plate
       const values = [
+        // target glass selection (2 swaps for targetGlassCount=2 from 4 types)
+        0.5, 0.5,
+        // round 1: 2 plates (count random + type random each)
         0.0, 0.0,   // plate1: 1 glass, type 0
-        0.0, 0.125,  // plate2: 1 glass, type 1
-        // round 2
-        0.0, 0.25,  // plate3: 1 glass, type 2
-        0.0, 0.375,  // plate4: 1 glass, type 3
+        0.0, 0.3,   // plate2: 1 glass, type 1
+        // round 2: 2 plates
+        0.0, 0.6,   // plate3: 1 glass, type 2
+        0.0, 0.8,   // plate4: 1 glass, type 3
       ];
-      // Also need values for target glass selection at start
-      const targetValues = [0.5, 0.5];
-      const allValues = [...targetValues, ...values];
       const rng = () => {
-        const v = allValues[callIndex % allValues.length]!;
+        const v = values[callIndex % values.length]!;
         callIndex++;
         return v;
       };
 
       const engine = new GameEngine(
-        { boardRows: 2, boardCols: 2, platesPerRound: 2 },
+        {
+          boardRows: 2, boardCols: 2, platesPerRound: 2,
+          initialObstacles: 0, glassTypeCount: 4, initialGlassTypes: 4,
+        },
         rng,
       );
       engine.start();
 
-      // Round 1: place 2 plates with distinct types
+      // Round 1: place 2 plates with distinct types (no merge)
       engine.selectPlate(0);
       engine.placePlate(0, 0);
       engine.selectPlate(1);
@@ -273,6 +272,7 @@ describe('GameEngine', () => {
           maxGlassesPerPlate: 3,
           targetGlassCount: 1,
           targetGlassRefreshThreshold: 2,
+          initialObstacles: 0,
         },
         () => 0.5,
       );

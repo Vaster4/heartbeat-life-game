@@ -7,10 +7,18 @@
 /** 酒杯类型（用数字表示，0 到 glassTypeCount-1） */
 export type GlassType = number;
 
-/** 棋盘格子（可以是盘子或空） */
+/** 棋盘格子（可以是盘子、障碍石或空） */
 export type Cell = Plate | null;
 
 // --- 数据模型 ---
+
+/** 障碍石 */
+export interface Obstacle {
+  /** 初始封印层数 (1~3) */
+  initialSeals: number;
+  /** 剩余封印层数 */
+  remainingSeals: number;
+}
 
 /** 盘子 */
 export interface Plate {
@@ -54,6 +62,12 @@ export interface GameState {
   targetGlasses: GlassType[];
   /** 累计满盘消除数（用于目标酒杯刷新） */
   totalFullEliminations: number;
+  /** 当前目标酒杯刷新阈值 */
+  targetRefreshThreshold: number;
+  /** 当前已解锁的酒杯类型数 */
+  unlockedGlassTypes: number;
+  /** 障碍石分布 (row,col) → Obstacle */
+  obstacles: { pos: CellPosition; obstacle: Obstacle }[];
   /** 当前选中的临时区盘子索引 */
   selectedPlateIndex: number | null;
   /** 游戏是否结束 */
@@ -110,8 +124,10 @@ export interface GameConfig {
   boardRows: number;
   /** 棋盘列数，默认 4 */
   boardCols: number;
-  /** 酒杯种类数量，默认 8 */
+  /** 酒杯种类数量上限，默认 8 */
   glassTypeCount: number;
+  /** 初始解锁酒杯种类数，默认 3 */
+  initialGlassTypes: number;
   /** 新盘子最少酒杯数，默认 1 */
   minGlassesPerPlate: number;
   /** 新盘子最多酒杯数，默认 4 */
@@ -122,8 +138,16 @@ export interface GameConfig {
   platesPerRound: number;
   /** 目标酒杯数量 m，默认 2 */
   targetGlassCount: number;
-  /** 目标酒杯刷新阈值，默认 10 */
+  /** 初始目标酒杯刷新阈值，默认 4 */
   targetGlassRefreshThreshold: number;
+  /** 每次刷新后阈值增长量，默认 2 */
+  targetRefreshGrowth: number;
+  /** 初始障碍石数量，默认 4 */
+  initialObstacles: number;
+  /** 全场障碍石上限，默认 6 */
+  maxObstacles: number;
+  /** 目标刷新后新增障碍石上限，默认 2 */
+  obstaclesPerRefresh: number;
   /** 单轮额外奖励配置 */
   roundBonuses: RoundBonus[];
 }
@@ -156,6 +180,11 @@ export interface IBoardState {
   getNeighbors(row: number, col: number): CellPosition[];
   hasEmptyCell(): boolean;
   clone(): IBoardState;
+  getObstacle(row: number, col: number): Obstacle | null;
+  setObstacle(row: number, col: number, obstacle: Obstacle | null): void;
+  isObstacle(row: number, col: number): boolean;
+  /** 格子是否可放置盘子（空且无障碍石） */
+  isPlaceable(row: number, col: number): boolean;
 }
 
 /** 合并算法接口 */

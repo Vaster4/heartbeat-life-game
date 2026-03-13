@@ -17,6 +17,11 @@ export class PlateGenerator implements IPlateGenerator {
     this.random = random;
   }
 
+  /** 动态设置当前可用的酒杯类型数（用于难度梯度） */
+  setGlassTypeCount(count: number): void {
+    (this.config as GameConfig).glassTypeCount = count;
+  }
+
   generatePlates(count: number): Plate[] {
     const plates: Plate[] = [];
     for (let i = 0; i < count; i++) {
@@ -24,7 +29,6 @@ export class PlateGenerator implements IPlateGenerator {
     }
     return plates;
   }
-
   private generateOnePlate(): Plate {
     const { minGlassesPerPlate, maxGlassesPerPlate, glassTypeCount } = this.config;
 

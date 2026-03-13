@@ -126,7 +126,7 @@ export class CanvasRenderer implements IRenderer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const padding = Math.max(8, w * 0.03);
-    const infoHeight = Math.max(60, h * 0.12);
+    const infoHeight = Math.max(80, h * 0.15);
     const stagingHeight = Math.max(60, h * 0.15);
     const boardAvailH = h - infoHeight - stagingHeight - padding * 4;
     const boardAvailW = w - padding * 2;
@@ -421,12 +421,43 @@ export class CanvasRenderer implements IRenderer {
       gx += glassR * 2.5;
     }
 
-    // Distance to next target refresh (default threshold = 10; GameState doesn't carry config)
-    const DEFAULT_REFRESH_THRESHOLD = 10;
-    const refreshDist = Math.max(0, DEFAULT_REFRESH_THRESHOLD - state.totalFullEliminations);
-    ctx.fillStyle = TEXT_COLOR;
-    ctx.font = `${fontSize * 0.85}px sans-serif`;
-    ctx.fillText(`刷新距离: ${refreshDist}`, gx + glassR, targetY);
+    // Progress bar for target refresh
+    const barX = x;
+    const barY = targetY + fontSize * 1.6;
+    const barW = L.width - L.padding * 2;
+    const barH = Math.max(12, fontSize * 0.8);
+    const progress = state.totalFullEliminations;
+    const threshold = state.targetRefreshThreshold;
+    const ratio = Math.min(progress / threshold, 1);
+
+    // Bar background
+    ctx.fillStyle = '#1a1a3e';
+    this.roundRect(ctx, barX, barY, barW, barH, barH * 0.4);
+    ctx.fill();
+    ctx.strokeStyle = '#334';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, barX, barY, barW, barH, barH * 0.4);
+    ctx.stroke();
+
+    // Bar fill with gradient
+    if (ratio > 0) {
+      const fillW = Math.max(barH * 0.8, barW * ratio);
+      const grad = ctx.createLinearGradient(barX, barY, barX + fillW, barY);
+      grad.addColorStop(0, '#e94560');
+      grad.addColorStop(0.5, '#ff6b81');
+      grad.addColorStop(1, '#ffd700');
+      ctx.fillStyle = grad;
+      this.roundRect(ctx, barX, barY, fillW, barH, barH * 0.4);
+      ctx.fill();
+    }
+
+    // Bar text
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.max(9, barH * 0.7)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${progress} / ${threshold}`, barX + barW / 2, barY + barH / 2);
+    ctx.textAlign = 'left';
 
     // Dump mode indicator (top-right corner)
     if (this.dumpEnabled) {
@@ -454,11 +485,18 @@ export class CanvasRenderer implements IRenderer {
     const { boardX, boardY, cellSize } = L;
     const { rows, cols, cells } = state.board;
 
+    // Build obstacle lookup
+    const obsMap = new Map<string, { initialSeals: number; remainingSeals: number }>();
+    for (const o of state.obstacles) {
+      obsMap.set(`${o.pos.row},${o.pos.col}`, o.obstacle);
+    }
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cx = boardX + c * cellSize;
         const cy = boardY + r * cellSize;
         const cell = cells[r]?.[c] ?? null;
+        const obs = obsMap.get(`${r},${c}`);
 
         // Cell background
         ctx.fillStyle = cell ? CELL_OCCUPIED_COLOR : CELL_EMPTY_COLOR;
@@ -469,7 +507,9 @@ export class CanvasRenderer implements IRenderer {
         ctx.lineWidth = 1;
         ctx.strokeRect(cx, cy, cellSize, cellSize);
 
-        if (cell) {
+        if (obs) {
+          this.drawObstacle(ctx, cx, cy, cellSize, obs.initialSeals, obs.remainingSeals);
+        } else if (cell) {
           this.drawPlate(ctx, cx, cy, cellSize, cell);
         }
 
@@ -527,6 +567,70 @@ export class CanvasRenderer implements IRenderer {
         ctx.stroke();
       }
     }
+  }
+
+  /**
+   * 绘制障碍石
+   * 1层=石质(灰), 2层=铁质(银蓝), 3层=钻石质(青白)
+   * 破损程度用裂纹数量表示
+   */
+  private drawObstacle(
+    ctx: CanvasRenderingContext2D, x: number, y: number, size: number,
+    initialSeals: number, remainingSeals: number,
+  ): void {
+    const inset = size * 0.06;
+    const ox = x + inset;
+    const oy = y + inset;
+    const os = size - inset * 2;
+    const r = os * 0.15;
+
+    // Material colors based on initial seals
+    let baseColor: string, strokeColor: string, label: string;
+    if (initialSeals >= 3) {
+      baseColor = '#88e8f0'; strokeColor = '#5cc8d0'; label = '◆';
+    } else if (initialSeals >= 2) {
+      baseColor = '#8899aa'; strokeColor = '#667788'; label = '■';
+    } else {
+      baseColor = '#998877'; strokeColor = '#776655'; label = '●';
+    }
+
+    // Draw stone body
+    this.roundRect(ctx, ox, oy, os, os, r);
+    ctx.fillStyle = baseColor;
+    ctx.fill();
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw cracks for broken seals
+    const broken = initialSeals - remainingSeals;
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1.5;
+    const cx = ox + os / 2;
+    const cy = oy + os / 2;
+    if (broken >= 1) {
+      ctx.beginPath();
+      ctx.moveTo(cx - os * 0.3, cy - os * 0.1);
+      ctx.lineTo(cx, cy + os * 0.05);
+      ctx.lineTo(cx - os * 0.1, cy + os * 0.3);
+      ctx.stroke();
+    }
+    if (broken >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(cx + os * 0.1, cy - os * 0.3);
+      ctx.lineTo(cx + os * 0.05, cy);
+      ctx.lineTo(cx + os * 0.3, cy + os * 0.15);
+      ctx.stroke();
+    }
+
+    // Seal count text
+    const fontSize = Math.max(10, os * 0.3);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${label}${remainingSeals}`, cx, cy);
+    ctx.textAlign = 'left';
   }
 
   private drawGlass(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, type: GlassType): void {

@@ -1,19 +1,23 @@
-import type { Cell, CellPosition, IBoardState, Plate } from '../types';
+import type { Cell, CellPosition, IBoardState, Obstacle, Plate } from '../types';
 
 /**
  * 棋盘状态管理类。
- * 维护 rows × cols 的二维网格，每个格子可以放置一个 Plate 或为空。
+ * 维护 rows × cols 的二维网格，每个格子可以放置一个 Plate、障碍石或为空。
  */
 export class BoardState implements IBoardState {
   readonly rows: number;
   readonly cols: number;
   private cells: Cell[][];
+  private obstacles: (Obstacle | null)[][];
 
   constructor(rows: number, cols: number) {
     this.rows = rows;
     this.cols = cols;
     this.cells = Array.from({ length: rows }, () =>
       Array.from<Cell>({ length: cols }).fill(null),
+    );
+    this.obstacles = Array.from({ length: rows }, () =>
+      Array.from<Obstacle | null>({ length: cols }).fill(null),
     );
   }
 
@@ -29,14 +33,26 @@ export class BoardState implements IBoardState {
     return this.cells[row]![col] === null;
   }
 
+  getObstacle(row: number, col: number): Obstacle | null {
+    return this.obstacles[row]![col] ?? null;
+  }
+
+  setObstacle(row: number, col: number, obstacle: Obstacle | null): void {
+    this.obstacles[row]![col] = obstacle;
+  }
+
+  isObstacle(row: number, col: number): boolean {
+    return this.obstacles[row]![col] !== null;
+  }
+
+  isPlaceable(row: number, col: number): boolean {
+    return this.isEmpty(row, col) && !this.isObstacle(row, col);
+  }
+
   getNeighbors(row: number, col: number): CellPosition[] {
     const directions: [number, number][] = [
-      [-1, 0], // 上
-      [1, 0],  // 下
-      [0, -1], // 左
-      [0, 1],  // 右
+      [-1, 0], [1, 0], [0, -1], [0, 1],
     ];
-
     const neighbors: CellPosition[] = [];
     for (const [dr, dc] of directions) {
       const nr = row + dr;
@@ -51,9 +67,7 @@ export class BoardState implements IBoardState {
   hasEmptyCell(): boolean {
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < this.cols; c++) {
-        if (this.cells[r]![c] === null) {
-          return true;
-        }
+        if (this.isPlaceable(r, c)) return true;
       }
     }
     return false;
@@ -70,6 +84,10 @@ export class BoardState implements IBoardState {
             glasses: [...cell.glasses],
             placedTimestamp: cell.placedTimestamp,
           };
+        }
+        const obs = this.obstacles[r]![c];
+        if (obs) {
+          copy.obstacles[r]![c] = { ...obs };
         }
       }
     }

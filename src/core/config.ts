@@ -5,12 +5,17 @@ export const DEFAULT_CONFIG: Readonly<GameConfig> = {
   boardRows: 6,
   boardCols: 4,
   glassTypeCount: 8,
+  initialGlassTypes: 3,
   minGlassesPerPlate: 1,
   maxGlassesPerPlate: 3,
   slotsPerPlate: 6,
   platesPerRound: 3,
   targetGlassCount: 2,
-  targetGlassRefreshThreshold: 10,
+  targetGlassRefreshThreshold: 4,
+  targetRefreshGrowth: 2,
+  initialObstacles: 4,
+  maxObstacles: 6,
+  obstaclesPerRefresh: 2,
   roundBonuses: [
     { threshold: 3, bonus: 1 },
     { threshold: 6, bonus: 5 },
@@ -82,6 +87,31 @@ export function validateConfig(config: GameConfig): GameConfig {
       `Invalid targetGlassRefreshThreshold (${result.targetGlassRefreshThreshold}), falling back to default (${DEFAULT_CONFIG.targetGlassRefreshThreshold})`,
     );
     result.targetGlassRefreshThreshold = DEFAULT_CONFIG.targetGlassRefreshThreshold;
+  }
+
+  // initialGlassTypes >= 1 and <= glassTypeCount
+  if (!Number.isFinite(result.initialGlassTypes) || result.initialGlassTypes < 1 || result.initialGlassTypes > result.glassTypeCount) {
+    result.initialGlassTypes = DEFAULT_CONFIG.initialGlassTypes;
+  }
+
+  // targetRefreshGrowth >= 0
+  if (!Number.isFinite(result.targetRefreshGrowth) || result.targetRefreshGrowth < 0) {
+    result.targetRefreshGrowth = DEFAULT_CONFIG.targetRefreshGrowth;
+  }
+
+  // initialObstacles >= 0
+  if (!Number.isFinite(result.initialObstacles) || result.initialObstacles < 0) {
+    result.initialObstacles = DEFAULT_CONFIG.initialObstacles;
+  }
+
+  // maxObstacles >= initialObstacles
+  if (!Number.isFinite(result.maxObstacles) || result.maxObstacles < result.initialObstacles) {
+    result.maxObstacles = DEFAULT_CONFIG.maxObstacles;
+  }
+
+  // obstaclesPerRefresh >= 0
+  if (!Number.isFinite(result.obstaclesPerRefresh) || result.obstaclesPerRefresh < 0) {
+    result.obstaclesPerRefresh = DEFAULT_CONFIG.obstaclesPerRefresh;
   }
 
   // roundBonuses thresholds should be in ascending order
