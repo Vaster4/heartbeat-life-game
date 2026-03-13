@@ -70,7 +70,7 @@ function main(): void {
 
   engine.start();
 
-  if (ALPHA_TEST) {
+  if (ALPHA_TEST || __DEV_MODE__) {
     engine.logger.dumpEnabled = true;
     renderer.dumpEnabled = true;
     renderer.showExportButton = true;
