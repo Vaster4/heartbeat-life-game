@@ -38,6 +38,8 @@ Change-Id: I<40位hex字符串>
 - feature 相关变更需要创建 `features/NNN-<名称>.md` 文档
 - 提交后回填 commit hash 到相关文档
 - bash shell 环境，git 命令前不需要 UTF-8 编码设置
+- 终端类型为 cmd，多行 commit message 必须用多个 `-m` 参数，不要在 `-m "..."` 内换行（cmd 不支持引号内换行，会截断）
+- 示例：`git commit -s -m "docs: 更新文档" -m "Change-Id: Ia1b2c3..."`
 
 ## 分支与推送规则
 
