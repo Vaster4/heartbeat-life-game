@@ -38,3 +38,9 @@ Change-Id: I<40位hex字符串>
 - feature 相关变更需要创建 `features/NNN-<名称>.md` 文档
 - 提交后回填 commit hash 到相关文档
 - bash shell 环境，git 命令前不需要 UTF-8 编码设置
+
+## 分支与推送规则
+
+- `dev` 分支仅用于本地开发，**不推送到远程**
+- 只有 `master` 分支可以推送到远程（`git push origin master`）
+- 推送流程：在 `dev` 上开发完成后，切换到 `master` 合并 `dev`，再推送 `master`
