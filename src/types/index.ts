@@ -189,7 +189,7 @@ export interface IBoardState {
 
 /** 合并算法接口 */
 export interface IMergeAlgorithm {
-  resolveUntilStable(board: IBoardState): ResolutionResult;
+  resolve(board: IBoardState, placedPos: CellPosition): ResolutionResult;
 }
 
 /** 得分计算接口 */

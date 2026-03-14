@@ -111,7 +111,7 @@ export class GameEngine implements IGameEngine {
     this.logger.info('PLACE', `放置盘子 id=${plate.id} 到 (${row},${col}) | ts=${plate.placedTimestamp} | 酒杯: [${plate.glasses.join(', ')}]`);
     this.logger.dump('放置后/合并前', this.board.rows, this.board.cols, (r, c) => this.board.getCell(r, c));
 
-    const resolution = this.mergeAlgorithm.resolveUntilStable(this.board);
+    const resolution = this.mergeAlgorithm.resolve(this.board, { row, col });
 
     let scoreGained = 0;
 

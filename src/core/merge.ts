@@ -9,130 +9,125 @@ import type {
   ResolutionResult,
 } from '../types';
 
-const MAX_ITERATIONS = 100;
+const MAX_DEPTH = 20;
 
 /**
- * 合并算法 - 局部参与组策略
+ * 合并算法 - 吸收模型
  *
- * 核心规则：
- * 1. 扫描棋盘，对每个盘子 P，检查它与相邻盘子是否有共同酒杯类型
- * 2. 如果没有 → 跳过
- * 3. 如果有 → P + 通过直接相邻共同类型连通的盘子组成"参与组"
- * 4. 参与组内所有酒杯按类型归类，每种类型尽量集中到一个盘子
- * 5. 盘子按时间戳升序排列，类型按数量降序排列
- *    最早的盘子承载最多的类型，依次分配
- *    如果类型数 > 盘子数，最后一个盘子承载剩余所有类型
- * 6. 空盘消除，6个同类型满盘消除
- * 7. 消除后继续迭代直到稳定
+ * 核心流程：
+ * 1. 从新放置的盘子出发，构建参与组（邻居中与类型并集有交集的盘子）
+ * 2. 吸收阶段：按时间戳升序，每个盘子选择一种共享类型吸收，其他类型挤出到剩余池
+ * 3. 剩余分配：剩余池中的酒杯填入参与组内有空位的盘子
+ * 4. 消除：空盘消除、满盘消除
+ * 5. 连锁：接收了剩余分配的盘子视为新盘子，递归执行合并
  */
 export class MergeAlgorithm implements IMergeAlgorithm {
-  resolveUntilStable(board: IBoardState): ResolutionResult {
-    const allMergeSteps: MergeStep[] = [];
+  resolve(board: IBoardState, placedPos: CellPosition): ResolutionResult {
+    const allSteps: MergeStep[] = [];
     const allEliminations: EliminationEvent[] = [];
 
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const { steps, eliminations } = this.performOnePass(board);
-      allMergeSteps.push(...steps);
-      allEliminations.push(...eliminations);
-
-      if (steps.length === 0 && eliminations.length === 0) {
-        return {
-          mergeSteps: allMergeSteps,
-          eliminations: allEliminations,
-          isStable: true,
-        };
-      }
-    }
+    this.resolveFrom(board, [placedPos], allSteps, allEliminations, 0);
 
     return {
-      mergeSteps: allMergeSteps,
+      mergeSteps: allSteps,
       eliminations: allEliminations,
-      isStable: false,
+      isStable: true,
     };
   }
 
   /**
-   * 一轮扫描：找到所有可合并的参与组，执行重分配，然后消除。
+   * 从一组"触发点"出发执行合并。每个触发点视为新放置的盘子。
    */
-  private performOnePass(board: IBoardState): {
-    steps: MergeStep[];
-    eliminations: EliminationEvent[];
-  } {
-    const steps: MergeStep[] = [];
+  private resolveFrom(
+    board: IBoardState,
+    triggers: CellPosition[],
+    allSteps: MergeStep[],
+    allEliminations: EliminationEvent[],
+    depth: number,
+  ): void {
+    if (depth >= MAX_DEPTH) return;
+
     const processed = new Set<string>();
 
-    for (let r = 0; r < board.rows; r++) {
-      for (let c = 0; c < board.cols; c++) {
-        const key = `${r},${c}`;
-        if (processed.has(key)) continue;
-        const plate = board.getCell(r, c);
-        if (!plate || plate.glasses.length === 0) continue;
+    for (const pos of triggers) {
+      const key = `${pos.row},${pos.col}`;
+      if (processed.has(key)) continue;
+      processed.add(key);
 
-        // 用迭代式 BFS 构建参与组
-        const group = this.buildMergeGroup(board, { row: r, col: c });
+      const plate = board.getCell(pos.row, pos.col);
+      if (!plate || plate.glasses.length === 0) continue;
 
-        // 至少需要 2 个盘子才能合并
-        if (group.length < 2) continue;
+      // 1. 构建参与组
+      const group = this.buildGroup(board, pos);
+      if (group.length < 2) continue;
 
-        // 标记已处理
-        for (const member of group) {
-          processed.add(`${member.pos.row},${member.pos.col}`);
-        }
+      // 标记参与组成员已处理
+      for (const m of group) {
+        processed.add(`${m.pos.row},${m.pos.col}`);
+      }
 
-        // 执行重分配
-        const groupSteps = this.redistributeGroup(group);
-        steps.push(...groupSteps);
+      // 2. 吸收 + 剩余分配
+      const { steps, residualReceivers } = this.absorbAndDistribute(group);
+      allSteps.push(...steps);
+
+      // 3. 消除
+      const eliminations = this.eliminateGroup(board, group);
+      allEliminations.push(...eliminations);
+
+      // 4. 连锁：接收了剩余分配且未被消除的盘子，递归
+      const eliminatedKeys = new Set(
+        eliminations.map(e => `${e.position.row},${e.position.col}`),
+      );
+      const nextTriggers = residualReceivers.filter(
+        p => !eliminatedKeys.has(`${p.row},${p.col}`),
+      );
+      if (nextTriggers.length > 0) {
+        this.resolveFrom(board, nextTriggers, allSteps, allEliminations, depth + 1);
       }
     }
-
-    const eliminations = this.performEliminations(board);
-    return { steps, eliminations };
   }
 
   /**
-   * 迭代式 BFS 构建参与组：
-   * 1. 从起始盘子出发，检查相邻盘子是否与其直接相邻的组内成员有共同类型
-   * 2. 如果有，纳入组，并重新检查新成员的邻居
-   * 3. 重复直到没有新成员加入
-   *
-   * 关键：邻居必须与其直接相邻的组内成员有共同类型才能纳入，
-   * 而不是与整个组的类型集合比较。这防止了类型通过中间盘子
-   * "传播"到不相关的远端盘子。
+   * 构建参与组：从新盘子出发，候选范围 = 新盘子的邻居。
+   * 用类型并集迭代匹配：只要邻居与当前参与组的类型并集有交集，就拉进来。
    */
-  private buildMergeGroup(
+  private buildGroup(
     board: IBoardState,
-    start: CellPosition,
+    center: CellPosition,
   ): { pos: CellPosition; plate: Plate }[] {
-    const startPlate = board.getCell(start.row, start.col);
-    if (!startPlate) return [];
+    const centerPlate = board.getCell(center.row, center.col);
+    if (!centerPlate) return [];
 
     const group: { pos: CellPosition; plate: Plate }[] = [
-      { pos: start, plate: startPlate },
+      { pos: center, plate: centerPlate },
     ];
-    const inGroup = new Set<string>([`${start.row},${start.col}`]);
+
+    // 候选：center 的所有邻居
+    const candidates: { pos: CellPosition; plate: Plate }[] = [];
+    for (const nPos of board.getNeighbors(center.row, center.col)) {
+      const neighbor = board.getCell(nPos.row, nPos.col);
+      if (neighbor && neighbor.glasses.length > 0) {
+        candidates.push({ pos: nPos, plate: neighbor });
+      }
+    }
+
+    // 类型并集
+    const typePool = new Set<GlassType>(centerPlate.glasses);
 
     let changed = true;
     while (changed) {
       changed = false;
-      for (let gi = 0; gi < group.length; gi++) {
-        const member = group[gi]!;
-        const memberTypes = new Set<GlassType>(member.plate.glasses);
-        for (const nPos of board.getNeighbors(member.pos.row, member.pos.col)) {
-          const nKey = `${nPos.row},${nPos.col}`;
-          if (inGroup.has(nKey)) continue;
-          const neighbor = board.getCell(nPos.row, nPos.col);
-          if (!neighbor || neighbor.glasses.length === 0) continue;
-
-          // 检查邻居是否与这个直接相邻的组内成员有共同类型
-          let shared = false;
-          for (const g of neighbor.glasses) {
-            if (memberTypes.has(g)) { shared = true; break; }
-          }
-          if (shared) {
-            inGroup.add(nKey);
-            group.push({ pos: nPos, plate: neighbor });
-            changed = true;
-          }
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        const cand = candidates[i]!;
+        let shared = false;
+        for (const g of cand.plate.glasses) {
+          if (typePool.has(g)) { shared = true; break; }
+        }
+        if (shared) {
+          group.push(cand);
+          for (const g of cand.plate.glasses) typePool.add(g);
+          candidates.splice(i, 1);
+          changed = true;
         }
       }
     }
@@ -141,138 +136,243 @@ export class MergeAlgorithm implements IMergeAlgorithm {
   }
 
   /**
-   * 对参与组执行共同类型定向转移 + 非共同类型回推：
-   * 1. 收集组内所有相邻盘子对
-   * 2. 对每对相邻盘子（新→老方向）：
-   *    a. 共同类型的酒杯从新盘子转移到老盘子（不超过6上限）
-   *    b. 老盘子上的非共同类型酒杯推回给新盘子（不超过6上限）
-   * 3. 这样每个盘子趋向单一类型化
+   * 吸收 + 剩余分配。
    *
-   * 按时间戳差从大到小处理（最新→最老的对优先）。
+   * 吸收阶段：按时间戳升序，每个盘子选择一种共享类型吸收。
+   * 吸收 = 清空自己，非吸收类型挤出到剩余池，然后从组内各盘子+剩余池拿走所有该类型（上限6），溢出进剩余池。
+   *
+   * 剩余分配：剩余池中的酒杯按数量降序，填入参与组内有空位的盘子（空位最多优先）。
    */
-  private redistributeGroup(
+  private absorbAndDistribute(
     group: { pos: CellPosition; plate: Plate }[],
-  ): MergeStep[] {
-    if (group.length < 2) return [];
+  ): { steps: MergeStep[]; residualReceivers: CellPosition[] } {
+    if (group.length < 2) return { steps: [], residualReceivers: [] };
 
-    const steps: MergeStep[] = [];
-
-    // 收集组内所有相邻盘子对（去重）
-    const pairs: [typeof group[0], typeof group[0]][] = [];
-    const pairSet = new Set<string>();
+    // 记录分配前状态
+    const before = new Map<string, GlassType[]>();
     for (const m of group) {
-      for (const other of group) {
-        if (m === other) continue;
-        const k1 = `${m.pos.row},${m.pos.col}`;
-        const k2 = `${other.pos.row},${other.pos.col}`;
-        const pairKey = k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
-        if (pairSet.has(pairKey)) continue;
-        if (Math.abs(m.pos.row - other.pos.row) + Math.abs(m.pos.col - other.pos.col) !== 1) continue;
-        pairSet.add(pairKey);
-        pairs.push([m, other]);
+      before.set(`${m.pos.row},${m.pos.col}`, [...m.plate.glasses]);
+    }
+
+    // 找出共享类型（参与组内 2+ 个盘子持有的类型）
+    const typeOwners = new Map<GlassType, number>();
+    for (const m of group) {
+      const seen = new Set<GlassType>();
+      for (const g of m.plate.glasses) {
+        if (!seen.has(g)) {
+          seen.add(g);
+          typeOwners.set(g, (typeOwners.get(g) ?? 0) + 1);
+        }
+      }
+    }
+    const sharedTypes = new Set<GlassType>();
+    for (const [type, count] of typeOwners) {
+      if (count >= 2) sharedTypes.add(type);
+    }
+
+    // 如果没有共享类型，不需要合并
+    if (sharedTypes.size === 0) return { steps: [], residualReceivers: [] };
+
+    // 统计每种共享类型在参与组内的总数量
+    const sharedTypeCounts = new Map<GlassType, number>();
+    for (const t of sharedTypes) sharedTypeCounts.set(t, 0);
+    for (const m of group) {
+      for (const g of m.plate.glasses) {
+        if (sharedTypes.has(g)) {
+          sharedTypeCounts.set(g, sharedTypeCounts.get(g)! + 1);
+        }
       }
     }
 
-    // 按时间戳差从大到小排序
-    pairs.sort((a, b) => {
-      const diffA = Math.abs((a[0].plate.placedTimestamp ?? 0) - (a[1].plate.placedTimestamp ?? 0));
-      const diffB = Math.abs((b[0].plate.placedTimestamp ?? 0) - (b[1].plate.placedTimestamp ?? 0));
-      return diffB - diffA;
+    // 按时间戳升序排列
+    const sorted = [...group].sort(
+      (a, b) => (a.plate.placedTimestamp ?? 0) - (b.plate.placedTimestamp ?? 0),
+    );
+
+    // 剩余池
+    const residualPool = new Map<GlassType, number>();
+
+    // 已被吸收的类型
+    const absorbedTypes = new Set<GlassType>();
+
+    // 吸收阶段
+    for (const m of sorted) {
+      // 选择该盘子原有的、未被吸收的共享类型中数量最多的
+      const myTypes = new Set<GlassType>(m.plate.glasses);
+      let bestType: GlassType | null = null;
+      let bestCount = 0;
+      for (const t of myTypes) {
+        if (!sharedTypes.has(t) || absorbedTypes.has(t)) continue;
+        const total = (sharedTypeCounts.get(t) ?? 0) + (residualPool.get(t) ?? 0);
+        if (total > bestCount) {
+          bestCount = total;
+          bestType = t;
+        }
+      }
+
+      if (bestType === null) continue;
+
+      absorbedTypes.add(bestType);
+
+      // 清空自己，非吸收类型挤出到剩余池
+      for (const g of m.plate.glasses) {
+        if (g !== bestType) {
+          residualPool.set(g, (residualPool.get(g) ?? 0) + 1);
+        }
+      }
+      // 自己的吸收类型数量
+      const myAbsorbCount = m.plate.glasses.filter(g => g === bestType).length;
+      m.plate.glasses = [];
+
+      // 从其他盘子拿走该类型
+      let totalCollected = myAbsorbCount;
+      for (const other of group) {
+        if (other === m) continue;
+        const kept: GlassType[] = [];
+        for (const g of other.plate.glasses) {
+          if (g === bestType) {
+            totalCollected++;
+          } else {
+            kept.push(g);
+          }
+        }
+        other.plate.glasses = kept;
+      }
+
+      // 从剩余池拿走该类型
+      const fromPool = residualPool.get(bestType) ?? 0;
+      totalCollected += fromPool;
+      residualPool.delete(bestType);
+
+      // 填入吸收盘子（上限6）
+      const fill = Math.min(totalCollected, 6);
+      for (let i = 0; i < fill; i++) {
+        m.plate.glasses.push(bestType);
+      }
+      // 溢出进剩余池
+      const overflow = totalCollected - fill;
+      if (overflow > 0) {
+        residualPool.set(bestType, (residualPool.get(bestType) ?? 0) + overflow);
+      }
+    }
+
+    // 剩余分配
+    const residualReceivers: CellPosition[] = [];
+    const remaining = [...residualPool.entries()]
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+
+    for (const [type, count] of remaining) {
+      let left = count;
+      // 按空位降序排列
+      const byCapacity = [...sorted].sort((a, b) => {
+        const capA = 6 - a.plate.glasses.length;
+        const capB = 6 - b.plate.glasses.length;
+        if (capB !== capA) return capB - capA;
+        return (a.plate.placedTimestamp ?? 0) - (b.plate.placedTimestamp ?? 0);
+      });
+      for (const m of byCapacity) {
+        if (left <= 0) break;
+        const capacity = 6 - m.plate.glasses.length;
+        if (capacity <= 0) continue;
+        const fill = Math.min(left, capacity);
+        for (let i = 0; i < fill; i++) {
+          m.plate.glasses.push(type);
+        }
+        left -= fill;
+        residualReceivers.push(m.pos);
+      }
+    }
+
+    // 去重 residualReceivers
+    const seen = new Set<string>();
+    const uniqueReceivers = residualReceivers.filter(p => {
+      const k = `${p.row},${p.col}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
     });
 
-    for (const [a, b] of pairs) {
-      const tsA = a.plate.placedTimestamp ?? 0;
-      const tsB = b.plate.placedTimestamp ?? 0;
-      if (tsA === tsB) continue;
-      const source = tsA > tsB ? a : b; // 较新
-      const target = tsA > tsB ? b : a; // 较老
-
-      const targetTypes = new Set(target.plate.glasses);
-      const sharedTypes = new Set<GlassType>();
-      for (const g of source.plate.glasses) {
-        if (targetTypes.has(g)) sharedTypes.add(g);
-      }
-      if (sharedTypes.size === 0) continue;
-
-      // Step 1: 共同类型从 source → target
-      for (const type of sharedTypes) {
-        const count = transferGlasses(source.plate, target.plate, type);
-        if (count > 0) {
-          steps.push({ sourcePos: source.pos, targetPos: target.pos, glassType: type, count });
-        }
-      }
-
-      // Step 2: target 上的非共同类型推回 source
-      const nonSharedTypes = new Set<GlassType>();
-      for (const g of target.plate.glasses) {
-        if (!sharedTypes.has(g)) nonSharedTypes.add(g);
-      }
-      for (const type of nonSharedTypes) {
-        const count = transferGlasses(target.plate, source.plate, type);
-        if (count > 0) {
-          steps.push({ sourcePos: target.pos, targetPos: source.pos, glassType: type, count });
-        }
-      }
-    }
-
-    return steps;
+    const steps = this.diffToSteps(group, before);
+    return { steps, residualReceivers: uniqueReceivers };
   }
 
-  /**
-   * 消除检查：
-   * - 0 个酒杯 → 空盘消除
-   * - 6 个同类型酒杯 → 满盘消除
-   */
-  private performEliminations(board: IBoardState): EliminationEvent[] {
+  /** 对参与组内的盘子执行消除检查 */
+  private eliminateGroup(
+    board: IBoardState,
+    group: { pos: CellPosition; plate: Plate }[],
+  ): EliminationEvent[] {
     const eliminations: EliminationEvent[] = [];
-    for (let r = 0; r < board.rows; r++) {
-      for (let c = 0; c < board.cols; c++) {
-        const plate = board.getCell(r, c);
-        if (!plate) continue;
-        if (plate.glasses.length === 0) {
-          eliminations.push({
-            position: { row: r, col: c },
-            plate: { ...plate, glasses: [...plate.glasses] },
-            reason: 'empty',
-          });
-          board.setCell(r, c, null);
-        } else if (
-          plate.glasses.length === 6 &&
-          plate.glasses.every((g) => g === plate.glasses[0])
-        ) {
-          eliminations.push({
-            position: { row: r, col: c },
-            plate: { ...plate, glasses: [...plate.glasses] },
-            reason: 'full_same_type',
-          });
-          board.setCell(r, c, null);
-        }
+    for (const m of group) {
+      const plate = board.getCell(m.pos.row, m.pos.col);
+      if (!plate) continue;
+      if (plate.glasses.length === 0) {
+        eliminations.push({
+          position: m.pos,
+          plate: { ...plate, glasses: [...plate.glasses] },
+          reason: 'empty',
+        });
+        board.setCell(m.pos.row, m.pos.col, null);
+      } else if (
+        plate.glasses.length === 6 &&
+        plate.glasses.every(g => g === plate.glasses[0])
+      ) {
+        eliminations.push({
+          position: m.pos,
+          plate: { ...plate, glasses: [...plate.glasses] },
+          reason: 'full_same_type',
+        });
+        board.setCell(m.pos.row, m.pos.col, null);
       }
     }
     return eliminations;
   }
-}
 
+  /** 对比分配前后的酒杯变化，生成 MergeStep */
+  private diffToSteps(
+    group: { pos: CellPosition; plate: Plate }[],
+    before: Map<string, GlassType[]>,
+  ): MergeStep[] {
+    const steps: MergeStep[] = [];
+    const after = new Map<string, { pos: CellPosition; glasses: GlassType[] }>();
+    for (const m of group) {
+      after.set(`${m.pos.row},${m.pos.col}`, { pos: m.pos, glasses: [...m.plate.glasses] });
+    }
 
-/**
- * 将 from 盘子中指定类型的所有酒杯转移到 to 盘子（不超过6上限）。
- * 直接修改两个盘子的 glasses 数组，返回实际转移数量。
- */
-function transferGlasses(from: Plate, to: Plate, type: GlassType): number {
-  const indices: number[] = [];
-  for (let i = 0; i < from.glasses.length; i++) {
-    if (from.glasses[i] === type) indices.push(i);
-  }
-  const capacity = 6 - to.glasses.length;
-  const count = Math.min(indices.length, capacity);
-  if (count <= 0) return 0;
+    for (const m of group) {
+      const key = `${m.pos.row},${m.pos.col}`;
+      const oldGlasses = before.get(key)!;
+      const newGlasses = after.get(key)!.glasses;
 
-  const toRemove = indices.slice(0, count);
-  for (let i = toRemove.length - 1; i >= 0; i--) {
-    from.glasses.splice(toRemove[i]!, 1);
+      const oldCount = new Map<GlassType, number>();
+      const newCount = new Map<GlassType, number>();
+      for (const g of oldGlasses) oldCount.set(g, (oldCount.get(g) ?? 0) + 1);
+      for (const g of newGlasses) newCount.set(g, (newCount.get(g) ?? 0) + 1);
+
+      for (const [type, cnt] of oldCount) {
+        const diff = cnt - (newCount.get(type) ?? 0);
+        if (diff > 0) {
+          for (const other of group) {
+            const oKey = `${other.pos.row},${other.pos.col}`;
+            if (oKey === key) continue;
+            const oBefore = new Map<GlassType, number>();
+            const oAfter = new Map<GlassType, number>();
+            for (const g of before.get(oKey)!) oBefore.set(g, (oBefore.get(g) ?? 0) + 1);
+            for (const g of after.get(oKey)!.glasses) oAfter.set(g, (oAfter.get(g) ?? 0) + 1);
+            const gained = (oAfter.get(type) ?? 0) - (oBefore.get(type) ?? 0);
+            if (gained > 0) {
+              steps.push({
+                sourcePos: m.pos,
+                targetPos: other.pos,
+                glassType: type,
+                count: Math.min(diff, gained),
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+    return steps;
   }
-  for (let i = 0; i < count; i++) {
-    to.glasses.push(type);
-  }
-  return count;
 }
